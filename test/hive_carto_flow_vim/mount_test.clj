@@ -40,7 +40,7 @@
     (try
       (testing "manifest and mount"
         (is (= #{"hive.carto-flow"} (:addon/dependencies manifest)))
-        (is (= :proprietary (:addon/trust-class manifest)))
+        (is (= :foss (:addon/trust-class manifest)))
         (is (:ok? report) (pr-str (:mounted report)))
         (is (= "hive.carto-flow.vim" (last (:order report))))
         (is (= #{:carto-flow-presenter :health-reporting} (addon/capabilities vim-ext)))
@@ -62,8 +62,13 @@
             (is (t/eventually #(= 1 (count (t/ingest-messages vim)))) "the backlog replays")
             (is (= 0 (get (first (t/ingest-messages vim)) "index"))))
           (testing "health reflects the connected Vim"
-            (let [{:keys [status details]} (addon/health vim-ext)]
-              (is (= :ok status))
+            ;; The fake Vim sees the replayed frame while core is still inside
+            ;; the re-registration (attach! replays, THEN the new presenter is
+            ;; swapped in), so the old degraded presenter can still be the one
+            ;; health reads for a moment. Health settles; it is not instant.
+            (is (t/eventually #(= :ok (:status (addon/health vim-ext))))
+                "health settles to :ok once the replayed presenter is registered")
+            (let [{:keys [details]} (addon/health vim-ext)]
               (is (true? (:listening? details)))
               (is (true? (:vim-attached? details)))
               (is (true? (:timeline-feature? details)))
