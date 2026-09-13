@@ -36,6 +36,7 @@ let s:address = get(s:, 'address', '')
 let s:explicit_address = get(s:, 'explicit_address', '')
 let s:timer = get(s:, 'timer', -1)
 let s:wanted = get(s:, 'wanted', 0)
+let s:connected = get(s:, 'connected', 0)
 let s:received = get(s:, 'received', 0)
 let s:server = get(s:, 'server', {})
 
