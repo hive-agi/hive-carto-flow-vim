@@ -5,4 +5,3 @@
 target/
 .nrepl-port
 local.deps.edn
-classes/

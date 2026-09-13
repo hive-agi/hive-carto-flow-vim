@@ -2,6 +2,5 @@
  :minor    1
  :license  {:name "MIT" :url "https://opensource.org/licenses/MIT"}
  :scm-url  "https://github.com/hive-agi/hive-carto-flow-vim"
- :aot/package-protocols [hive-addon.protocol/IAddon]
  :src-dirs ["src" "resources"]
  :publish  :clojars}

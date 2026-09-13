@@ -57,12 +57,5 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq vim
 
-      # See release.yml: the AOT core jar and the source protocol must share
-      # one IAddon interface class.
-      - name: Precompile hive-addon.protocol
-        run: |
-          mkdir -p classes
-          clojure -M:dev -e "(binding [*compile-path* \"classes\"] (compile 'hive-addon.protocol))"
-
       - name: Run the suite
         run: clojure -M:test

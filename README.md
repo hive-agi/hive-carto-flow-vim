@@ -97,14 +97,7 @@ clojure -Sdeps "$(cat local.deps.edn)" -M:test
 ```
 
 `local.deps.edn` points `hive-carto-flow`, `hive-vessel`, `hive-addon`,
-`hive-events` and `hive-dsl` at sibling checkouts. Against the published
-jars instead (what CI runs), precompile the addon protocol first, because
-the core jar is AOT and packages the `IAddon` interface class:
-
-```bash
-mkdir -p classes
-clojure -M:dev -e "(binding [*compile-path* \"classes\"] (compile 'hive-addon.protocol))"
-clojure -M:test
-``` The integration test drives a
-real headless `/usr/bin/vim`, and the provision test drives a real Vim in tmux
+`hive-events` and `hive-dsl` at sibling checkouts; `clojure -M:test` runs
+against the published jars instead, which is what CI does. The integration
+test drives a real headless `/usr/bin/vim`, and the provision test drives a real Vim in tmux
 started after injection; both are skipped when Vim or its features are missing.

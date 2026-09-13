@@ -76,15 +76,6 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq vim
 
-      # The published hive-carto-flow jar is AOT and packages the IAddon
-      # interface class; hive-addon.protocol loaded from source would define a
-      # second class of that name and core's record would not satisfy the
-      # protocol. One precompile makes both sides link to the same class.
-      - name: Precompile hive-addon.protocol
-        run: |
-          mkdir -p classes
-          clojure -M:dev -e "(binding [*compile-path* \"classes\"] (compile 'hive-addon.protocol))"
-
       # Gate BEFORE the bump: a published pom is immutable, so a red suite
       # must not be able to mint a version, tag it and ship it.
       - name: Test
