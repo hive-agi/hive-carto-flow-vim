@@ -282,8 +282,30 @@ function! s:resolve_path(path) abort
   return ''
 endfunction
 
+" The new-file line of the first change in DIFF: the first hunk's +N start,
+" advanced past its leading context lines to the first added or removed line.
+" 1 when DIFF has no hunk.
+function! carto_flow#first_changed_line(diff) abort
+  let l:line = 0
+  for l:text in split(type(a:diff) == v:t_string ? a:diff : '', "\n")
+    if l:line == 0
+      let l:hunk = matchlist(l:text, '^@@ -\d\+\%(,\d\+\)\= +\(\d\+\)')
+      if !empty(l:hunk)
+        let l:line = str2nr(l:hunk[1])
+      endif
+    elseif l:text =~# '^[+-]'
+      return l:line
+    elseif l:text =~# '^@@'
+      return l:line
+    else
+      let l:line += 1
+    endif
+  endfor
+  return l:line > 0 ? l:line : 1
+endfunction
+
 " Where a frame's change lives: the first readable affected path, at the first
-" added line of the frame's diff (line 1 without a diff). {} when no affected
+" changed line of the frame's diff (line 1 without a diff). {} when no affected
 " path resolves to a readable file.
 function! carto_flow#code_location(msg) abort
   let l:frame = type(get(a:msg, 'frame', 0)) == v:t_dict ? a:msg.frame : {}
@@ -298,10 +320,8 @@ function! carto_flow#code_location(msg) abort
   if empty(l:file)
     return {}
   endif
-  let l:diff = get(l:frame, 'frame/diff', '')
-  let l:hunk = matchlist(type(l:diff) == v:t_string ? l:diff : '',
-        \ '@@ -\d\+\%(,\d\+\)\= +\(\d\+\)')
-  return {'file': l:file, 'line': empty(l:hunk) ? 1 : str2nr(l:hunk[1])}
+  return {'file': l:file,
+        \ 'line': carto_flow#first_changed_line(get(l:frame, 'frame/diff', ''))}
 endfunction
 
 function! s:code_window() abort

@@ -170,7 +170,7 @@
           (is (= 2 (:frames state)) (pr-str state))
           (is (true? (:timeline-window? state)) "auto-open showed the timeline")
           (is (= "src/a.clj" (:focus state)) "focus stayed in the code window")
-          (is (= 4 (:code-line state)) "the live frame moved the code to the diff's first changed line"))
+          (is (= 5 (:code-line state)) "the live frame moved the code to the diff's first changed line"))
         (is (= "frame #1  succeeded  write-form"
                (last (ask-vim! session answer (shows "frame #1  succeeded  write-form") "C-w" "k" "Enter")))
             "<CR> on the timeline opened the latest frame's detail")
