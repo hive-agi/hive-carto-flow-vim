@@ -1,0 +1,19 @@
+{:addon/id "hive.carto-flow.vim"
+ :addon/kind :addon
+ :addon/type :native
+ :addon/version "0.1.0"
+ :addon/init-ns "hive-carto-flow-vim.addon"
+ :addon/init-fn "addon-ctor"
+ :addon/config {:carto-flow.vim/port 0}
+ :addon/capabilities #{:carto-flow-presenter :health-reporting}
+ :addon/dependencies #{"hive.carto-flow"}
+ :addon/description "Vim vessel extension of hive.carto-flow: a localhost Vim JSON-channel server that presents the Carto Flow timeline in a Vim buffer"
+ :addon/maturity :experimental
+ :addon/trust-class :foss
+ :addon/runtime [{:runtime/id "hive-carto-flow"
+                  :runtime/client :vim
+                  :runtime/source {:source/hook :carto-flow.vim/plugin-dir}
+                  :runtime/bindings {:port-file {:binding/hook :carto-flow.vim/port-file}}
+                  :runtime/on-load ["let g:carto_flow_port_file = '{{port-file}}'"
+                                    "let g:carto_flow_auto_open = 1"
+                                    "CartoFlowConnect"]}]}

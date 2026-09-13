@@ -1,0 +1,61 @@
+name: Verify
+
+# Pull requests and pushes that release.yml does not pick up (docs, CI). The
+# suite needs hive.carto-flow from the private hive-agi registry, hence the
+# MAVEN_* secrets, and a headless Vim for the vim-integration namespace.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clojure:
+    runs-on: ubuntu-latest
+    env:
+      MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+      MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: DeLaGuardo/setup-clojure@13.0
+        with:
+          cli: latest
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ runner.os }}-${{ hashFiles('deps.edn') }}
+          restore-keys: m2-${{ runner.os }}-
+
+      - name: Materialize private-registry credentials
+        run: |
+          test -n "$MAVEN_TOKEN" || { echo "MAVEN_TOKEN secret is missing: hive.carto-flow cannot be resolved" >&2; exit 1; }
+          mkdir -p "$HOME/.m2"
+          cat > "$HOME/.m2/settings.xml" <<EOF
+          <settings>
+            <servers>
+              <server>
+                <id>hive-gitea</id>
+                <username>${MAVEN_USERNAME}</username>
+                <password>${MAVEN_TOKEN}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+      - name: Install Vim
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq vim
+
+      - name: Run the suite
+        run: clojure -M:test

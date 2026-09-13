@@ -1,0 +1,124 @@
+name: release
+
+# Patch-bump and publish only when the push actually changes the library.
+# README / CI / test-only commits do not mint a version, because a published
+# pom is immutable on Clojars.
+#
+# CI owns VERSION: push the feature commit only and let this workflow pick
+# the number (bump -> commit -> tag -> deploy). A hand-bumped VERSION gets
+# bumped twice.
+#
+# hive.carto-flow, the core this addon extends, lives on the private hive-agi
+# registry (gitea.hive-mcp.com), so resolving the tree needs the
+# MAVEN_USERNAME / MAVEN_TOKEN secrets on this repository or the org. Without
+# them every clojure step fails at resolution. The published artifact itself
+# goes to Clojars: it is MIT, and its pom names the private repository so a
+# consumer with registry access resolves the core.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'resources/**'
+      - 'deps.edn'
+      # The suite gates the bump/deploy below, so a test-only change must be
+      # able to trigger a run.
+      - 'test/**'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
+      MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: DeLaGuardo/setup-clojure@13.0
+        with:
+          cli: latest
+
+      - name: Materialize private-registry credentials
+        run: |
+          test -n "$MAVEN_TOKEN" || { echo "MAVEN_TOKEN secret is missing: hive.carto-flow cannot be resolved" >&2; exit 1; }
+          mkdir -p "$HOME/.m2"
+          cat > "$HOME/.m2/settings.xml" <<EOF
+          <settings>
+            <servers>
+              <server>
+                <id>hive-gitea</id>
+                <username>${MAVEN_USERNAME}</username>
+                <password>${MAVEN_TOKEN}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+      # The vim-integration suite drives a headless Vim; without one it skips
+      # and only the fake-Vim suites run.
+      - name: Install Vim
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq vim
+
+      # Gate BEFORE the bump: a published pom is immutable, so a red suite
+      # must not be able to mint a version, tag it and ship it.
+      - name: Test
+        run: clojure -M:test
+
+      - name: Bump patch version
+        run: clojure -T:build bump :level :patch
+
+      # Runs AFTER the bump and BEFORE the tag, so the pending version
+      # describes itself. A pinned hive-build without the task skips.
+      - name: Regenerate changelog
+        run: |
+          set +e
+          out=$(clojure -T:build changelog 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$out"
+          if [ "$status" -ne 0 ]; then
+            case "$out" in
+              *"function not found: changelog"*)
+                echo "skip: the pinned hive-build predates the changelog task" ;;
+              *) exit "$status" ;;
+            esac
+          fi
+
+      - name: Commit and tag
+        run: |
+          VER=$(cat VERSION)
+          git config user.name  "hive-ci"
+          git config user.email "ci@hive-agi.local"
+          git add VERSION
+          [ -f CHANGELOG.md ] && git add CHANGELOG.md
+          # [skip ci] stops this push from retriggering the workflow.
+          git commit -m "chore(release): $VER [skip ci]"
+          # Annotated: `git push --follow-tags` ignores lightweight tags,
+          # which would publish the artifact and silently drop the tag.
+          git tag -a "v$VER" -m "release $VER"
+          git push --follow-tags
+
+      - name: Deploy
+        env:
+          # The hive-agi org secret is CLOJARS_DEPLOY_TOKEN, while deps-deploy
+          # reads CLOJARS_PASSWORD. Map one onto the other.
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_DEPLOY_TOKEN }}
+        run: clojure -T:build deploy

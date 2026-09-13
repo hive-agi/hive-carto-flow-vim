@@ -1,0 +1,7 @@
+.cpcache/
+.clj-kondo/.cache/
+.clj-kondo/imports/
+.lsp/
+target/
+.nrepl-port
+local.deps.edn

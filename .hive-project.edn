@@ -1,0 +1,6 @@
+{:project-id "hive-carto-flow-vim"
+ :parent "hive"
+ :description "Vim vessel extension of hive.carto-flow: presents the Carto Flow timeline in Vim over Vim JSON channels"
+ :language :clojure
+ :tags [:hive :carto :addon :vessel :vim]
+ :carto {:source-roots ["resources" "src" "test"]}}
