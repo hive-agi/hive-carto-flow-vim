@@ -134,3 +134,43 @@
           (when vim (addon/shutdown! vim))
           (when flow (addon/shutdown! flow))
           (t/delete-tree! dir))))))
+
+(deftest cartoflowfollow-flips-sets-and-refuses-unknown-arguments
+  (if-not (vim-with-channels?)
+    (println "SKIP vim integration: no" vim-path "with +channel +timers")
+    (let [dir        (t/temp-dir)
+          plugin-dir (-> (io/resource "vim/plugin/carto_flow.vim") io/file
+                         .getParentFile .getParentFile str)
+          out        (io/file dir "follow.out")
+          script     (io/file dir "follow.vim")]
+      (try
+        (spit script
+              (str/join
+               "\n"
+               [(str "execute 'set rtp^=' . fnameescape(" (vim-string plugin-dir) ")")
+                "runtime plugin/carto_flow.vim"
+                "let s:out = [get(g:, 'carto_flow_follow_edits', 1)]"
+                "CartoFlowFollow"
+                "call add(s:out, g:carto_flow_follow_edits)"
+                "CartoFlowFollow"
+                "call add(s:out, g:carto_flow_follow_edits)"
+                "CartoFlowFollow off"
+                "call add(s:out, g:carto_flow_follow_edits)"
+                "CartoFlowFollow on"
+                "call add(s:out, g:carto_flow_follow_edits)"
+                "silent! CartoFlowFollow maybe"
+                "call add(s:out, g:carto_flow_follow_edits)"
+                "call add(s:out, join(carto_flow#follow_complete('o', '', 0), ','))"
+                (str "call writefile(s:out, " (vim-string (str out)) ")")
+                "qa!"
+                ""]))
+        (let [p (.start (doto (ProcessBuilder. [vim-path "-N" "-u" "NONE" "-i" "NONE" "-es"
+                                                "-S" (str script)])
+                          (.redirectInput (ProcessBuilder$Redirect/from (io/file "/dev/null")))
+                          (.redirectErrorStream true)
+                          (.redirectOutput (io/file dir "vim.out"))))]
+          (is (.waitFor p vim-timeout-seconds TimeUnit/SECONDS) "vim exited in time")
+          (is (= ["1" "0" "1" "0" "1" "1" "on,off"] (lines-of out))
+              "default on; bare flips twice; off and on set; an unknown argument changes nothing"))
+        (finally
+          (t/delete-tree! dir))))))

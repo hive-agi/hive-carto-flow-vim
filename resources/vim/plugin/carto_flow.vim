@@ -6,6 +6,7 @@
 "   :CartoFlowDisconnect                 close the channel, stop reconnecting
 "   :CartoFlowClear                      forget the frames shown in this Vim
 "   :CartoFlowCode                       open the code of the frame under the cursor
+"   :CartoFlowFollow [on|off]            follow live edits into the code, or flip it
 "
 " Keys, in the timeline and in the carto-flow://frame detail:
 "   n ]f  next frame     p [f  previous frame     G  latest, then follow
@@ -39,6 +40,8 @@ command! -nargs=? CartoFlowConnect call carto_flow#connect(<f-args>)
 command! -nargs=0 CartoFlowDisconnect call carto_flow#disconnect()
 command! -nargs=0 CartoFlowClear call carto_flow#clear()
 command! -nargs=0 CartoFlowCode call carto_flow#open_code()
+command! -nargs=? -complete=customlist,carto_flow#follow_complete CartoFlowFollow
+      \ call carto_flow#follow_edits(<f-args>)
 
 if get(g:, 'carto_flow_autoconnect', 0)
   if v:vim_did_enter

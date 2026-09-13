@@ -235,6 +235,32 @@ function! s:on_live_frame(msg) abort
   endif
 endfunction
 
+" :CartoFlowFollow [on|off] -- set g:carto_flow_follow_edits, or flip it with
+" no argument. Returns the resulting state (1 on, 0 off); an unknown argument
+" changes nothing.
+function! carto_flow#follow_edits(...) abort
+  let l:current = get(g:, 'carto_flow_follow_edits', 1) ? 1 : 0
+  let l:arg = a:0 ? trim(a:1) : ''
+  if empty(l:arg)
+    let g:carto_flow_follow_edits = !l:current
+  elseif l:arg ==# 'on'
+    let g:carto_flow_follow_edits = 1
+  elseif l:arg ==# 'off'
+    let g:carto_flow_follow_edits = 0
+  else
+    echohl ErrorMsg
+    echomsg 'carto-flow: :CartoFlowFollow takes on, off, or no argument'
+    echohl None
+    return l:current
+  endif
+  echomsg 'carto-flow: follow edits ' . (g:carto_flow_follow_edits ? 'on' : 'off')
+  return g:carto_flow_follow_edits
+endfunction
+
+function! carto_flow#follow_complete(arglead, cmdline, cursorpos) abort
+  return filter(['on', 'off'], 'v:val =~# "^" . a:arglead')
+endfunction
+
 " ---------------------------------------------------------------------- code
 
 function! s:resolve_path(path) abort
