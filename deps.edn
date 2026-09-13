@@ -11,7 +11,7 @@
 
   io.github.hive-agi/hive-carto-flow {:mvn/version "0.1.13"}
   io.github.hive-agi/hive-vessel {:mvn/version "0.1.2"}
-  io.github.hive-agi/hive-addon {:mvn/version "1.0.3"}
+  io.github.hive-agi/hive-addon {:mvn/version "1.0.8"}
   io.github.hive-agi/hive-events {:mvn/version "0.5.12"}
   io.github.hive-agi/hive-dsl {:mvn/version "0.5.23"}}
 
