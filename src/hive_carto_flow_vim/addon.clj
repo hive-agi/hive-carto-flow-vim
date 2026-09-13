@@ -30,6 +30,26 @@
                             :registry registry
                             :vessel resolve-vessel}))
 
+(defn cursor-follower
+  "A core cursor listener: when core's timeline cursor moves (next!, previous!,
+   latest! from any client), put the connected Vim's timeline cursor on the same
+   frame. Sends run in order on OUTBOX, an agent, so a slow or absent Vim never
+   blocks whoever moved the cursor. A Vim without the timeline plugin, or none at
+   all, is left alone, and a failed send is dropped: the cursor is a view, and
+   the next move sends it again."
+  [registry resolve-vessel outbox]
+  (fn [frame _snapshot]
+    (send-off outbox
+              (fn [sent]
+                (try
+                  (let [vessel (resolve-vessel)]
+                    (if (contains? (:vessel/features vessel) vim-vessel/timeline-feature)
+                      (do (v/dispatch! registry vessel (vim-vessel/seek-op frame))
+                          (inc sent))
+                      sent))
+                  (catch Throwable _
+                    sent))))))
+
 (defn- on-connect
   "Bring a freshly connected Vim to the timeline: greet it when it runs the
    timeline plugin, then re-register the presenter so core replays the backlog
@@ -45,6 +65,7 @@
 (defn- release!
   "Undo whatever of a start got done. Never throws."
   [config ch port-file]
+  (try (extension/unsubscribe-cursor! config presenter-id) (catch Throwable _ nil))
   (when ch
     (try (channel/stop! ch) (catch Throwable _ nil)))
   (try (extension/unregister! config presenter-id) (catch Throwable _ nil))
@@ -73,6 +94,8 @@
             (when-not (extension/register! config presenter-id
                                            (delivery-target registry #(channel/vessel ch)))
               (throw (ex-info "hive.carto-flow refused the :vim presenter (core not active)" {})))
+            (extension/subscribe-cursor! config presenter-id
+                                         (cursor-follower registry #(channel/vessel ch) (agent 0)))
             (paths/write-port-file! port-file (channel/port ch))
             (let [plugin (try {:plugin-dir (paths/ensure-plugin-dir! dir)}
                               (catch Throwable t {:plugin-error (ex-message t)}))]

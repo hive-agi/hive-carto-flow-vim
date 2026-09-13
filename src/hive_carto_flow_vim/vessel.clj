@@ -72,6 +72,13 @@
   [frame-count]
   {:op :vim/call :fn hello-fn :args [{"server" server-name "frames" frame-count}]})
 
+(def seek-fn "carto_flow#seek")
+
+(defn seek-op
+  "Move the plugin's cursor to FRAME, the frame core's timeline cursor is on."
+  [frame]
+  {:op :vim/call :fn seek-fn :args [{"index" (:frame/index frame)}]})
+
 (def features-probe-op
   "Handshake op: Vim's builtin eval of `features-expr`; its reply is the JSON
    list of advertised feature names."

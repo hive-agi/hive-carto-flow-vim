@@ -4,6 +4,7 @@
 "   ["call", "carto_flow#hello",  [{"server": ..., "frames": N}]]
 "   ["call", "carto_flow#ingest", [{"index": I, "phase": ..., "line": ...,
 "                                   "detail": [...], "frame": {...}}]]
+"   ["call", "carto_flow#seek",   [{"index": I}]]
 " A hello starts every connection and is followed by the replay of the whole
 " timeline, so the frame list is rebuilt from it. Frames are keyed by index: a
 " frame arriving twice replaces itself.
@@ -400,6 +401,23 @@ endfunction
 function! carto_flow#latest() abort
   let s:follow = 1
   let s:cursor = len(s:frames) - 1
+  call s:render()
+  call s:refresh_detail()
+endfunction
+
+" Core's timeline cursor moved (next!, previous!, latest! from any client): put
+" this Vim's cursor on the same frame, keeping follow on only at the newest one.
+" An index this Vim does not hold is ignored.
+function! carto_flow#seek(msg) abort
+  if type(a:msg) != v:t_dict || type(get(a:msg, 'index', v:null)) != v:t_number
+    return
+  endif
+  let l:pos = s:position(a:msg.index)
+  if l:pos < 0
+    return
+  endif
+  let s:cursor = l:pos
+  let s:follow = s:cursor == len(s:frames) - 1
   call s:render()
   call s:refresh_detail()
 endfunction

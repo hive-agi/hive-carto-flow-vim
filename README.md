@@ -67,6 +67,12 @@ These keys work in the timeline and in the `carto-flow://frame` detail:
 | `<CR>` | (timeline) open the frame's detail and diff in a split |
 | `q` | close the window |
 
+Core's cursor drives this one: when anything moves the core timeline cursor
+(`:carto-flow/next!`, `:carto-flow/previous!`, `:carto-flow/latest!`, from
+Emacs, a tool call, or another vessel), the connected Vim's cursor moves to the
+same frame and an open detail re-renders. Moving with `n`/`p` inside Vim stays
+local to that Vim.
+
 Commands: `:CartoFlow [port]`, `:CartoFlowConnect [port]`,
 `:CartoFlowDisconnect`, `:CartoFlowCode`, `:CartoFlowFollow [on|off]`, and
 `:CartoFlowClear`, which clears

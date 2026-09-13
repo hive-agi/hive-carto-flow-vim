@@ -174,3 +174,73 @@
               "default on; bare flips twice; off and on set; an unknown argument changes nothing"))
         (finally
           (t/delete-tree! dir))))))
+
+(deftest a-cursor-move-in-core-moves-the-vim-cursor
+  (if-not (vim-with-channels?)
+    (println "SKIP vim integration: no" vim-path "with +channel +timers")
+    (let [dir (t/temp-dir)
+          host (mount/atom-mount-host)
+          report (mount/mount!
+                  (mount/solve [t/carto-spec
+                                (t/classpath-manifest "hive-carto-flow.edn")
+                                (update (t/classpath-manifest "hive-carto-flow-vim.edn")
+                                        :addon/config merge
+                                        {:carto-flow.vim/state-dir (str dir)})])
+                  host
+                  {:license-gate (t/permit-only #{"hive.carto-flow" "hive.carto-flow.vim"})})
+          vim (mount-port/registered host "hive.carto-flow.vim")
+          flow (mount-port/registered host "hive.carto-flow")
+          out (fn [name] (str (io/file dir name)))
+          script-file (io/file dir "cursor.vim")
+          process (atom nil)]
+      (try
+        (is (:ok? report) (pr-str (:mounted report)))
+        (t/mutate! :carto.mutation/intent ["src/a.clj"])
+        (t/mutate! :carto.mutation/succeeded ["src/a.clj"])
+        (spit script-file
+              (str/join
+               "\n"
+               [(str "let g:carto_flow_port_file = " (vim-string (out "vim.port")))
+                "let g:carto_flow_reconnect_ms = 50"
+                "let g:carto_flow_follow_edits = 0"
+                (str "execute 'set rtp^=' . fnameescape("
+                     (vim-string ((:carto-flow.vim/plugin-dir (addon/hooks vim)))) ")")
+                "runtime plugin/carto_flow.vim"
+                "function! s:wait(cond, seconds) abort"
+                "  let l:start = reltime()"
+                "  while !eval(a:cond) && reltimefloat(reltime(l:start)) < a:seconds"
+                "    sleep 20m"
+                "  endwhile"
+                "endfunction"
+                "CartoFlow"
+                "call s:wait('len(carto_flow#frames()) >= 2', 30.0)"
+                (str "call writefile(['ready'], " (vim-string (out "ready")) ")")
+                "call s:wait('carto_flow#status().cursor == 0', 30.0)"
+                (str "call writefile([carto_flow#status().cursor], " (vim-string (out "moved-back")) ")")
+                "call s:wait('carto_flow#status().cursor == 1', 30.0)"
+                (str "call writefile([carto_flow#status().cursor], " (vim-string (out "moved-latest")) ")")
+                "qa!"
+                ""]))
+        (reset! process
+                (.start (doto (ProcessBuilder. [vim-path "-N" "-u" "NONE" "-i" "NONE" "-es"
+                                                "-S" (str script-file)])
+                          (.redirectInput (ProcessBuilder$Redirect/from (io/file "/dev/null")))
+                          (.redirectErrorStream true)
+                          (.redirectOutput (io/file dir "vim.out")))))
+        (is (t/eventually #(= ["ready"] (lines-of (out "ready"))) 30000)
+            "vim holds both frames, cursor on the newest")
+        (is (= 0 (:frame/index ((:carto-flow/previous! (addon/hooks flow))))))
+        (is (t/eventually #(= ["0"] (lines-of (out "moved-back"))) 30000)
+            "core's previous! moved the Vim cursor to frame 0")
+        (is (= 1 (:frame/index ((:carto-flow/latest! (addon/hooks flow))))))
+        (is (t/eventually #(= ["1"] (lines-of (out "moved-latest"))) 30000)
+            "core's latest! moved it back to the newest frame")
+        (is (.waitFor ^Process @process vim-timeout-seconds TimeUnit/SECONDS) "vim exited in time")
+        (finally
+          (when-let [^Process p @process]
+            (when (.isAlive p)
+              (println "vim output:" (slurp (io/file dir "vim.out")))
+              (.destroyForcibly p)))
+          (when vim (addon/shutdown! vim))
+          (when flow (addon/shutdown! flow))
+          (t/delete-tree! dir))))))

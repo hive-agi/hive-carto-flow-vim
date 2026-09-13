@@ -91,3 +91,8 @@
   (is (= ["call" sut/hello-fn [{"server" sut/server-name "frames" 3}]]
          (-> (v/plan (sut/registry) timeline-target (sut/hello-op 3))
              :ok :plan/ops first :native/payload))))
+
+(deftest seek-names-the-frame-core-moved-to
+  (is (= ["call" sut/seek-fn [{"index" 7}]]
+         (-> (v/plan (sut/registry) timeline-target (sut/seek-op {:frame/index 7}))
+             :ok :plan/ops first :native/payload))))
