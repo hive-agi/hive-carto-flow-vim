@@ -52,7 +52,8 @@ server restarts.
 
 Live frames follow the edit: the changed file opens at the first changed line
 of the frame's diff, in a window that is not the timeline, and focus stays
-where it was (`g:carto_flow_follow_edits`, default on). Relative frame paths
+where it was (`g:carto_flow_follow_edits`, default on; `:CartoFlowFollow`
+flips it, `:CartoFlowFollow on|off` sets it). Relative frame paths
 resolve against `g:carto_flow_roots`, then the current directory.
 
 These keys work in the timeline and in the `carto-flow://frame` detail:
@@ -67,7 +68,8 @@ These keys work in the timeline and in the `carto-flow://frame` detail:
 | `q` | close the window |
 
 Commands: `:CartoFlow [port]`, `:CartoFlowConnect [port]`,
-`:CartoFlowDisconnect`, `:CartoFlowCode`, and `:CartoFlowClear`, which clears
+`:CartoFlowDisconnect`, `:CartoFlowCode`, `:CartoFlowFollow [on|off]`, and
+`:CartoFlowClear`, which clears
 only this Vim's view. `g:carto_flow_auto_open = 1` opens the timeline on the
 first live frame without moving focus.
 
