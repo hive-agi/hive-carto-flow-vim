@@ -10,16 +10,23 @@
   org.clojure/data.json {:mvn/version "2.5.2"}
 
   io.github.hive-agi/hive-carto-flow {:mvn/version "0.1.12"}
-  io.github.hive-agi/hive-vessel {:mvn/version "0.1.0"}
+  io.github.hive-agi/hive-vessel {:mvn/version "0.1.1"}
   io.github.hive-agi/hive-addon {:mvn/version "1.0.3"}
   io.github.hive-agi/hive-events {:mvn/version "0.5.12"}
   io.github.hive-agi/hive-dsl {:mvn/version "0.5.23"}}
 
+ ;; `classes` holds a precompiled hive-addon.protocol. The published
+ ;; hive-carto-flow jar is AOT and packages the IAddon interface class; when
+ ;; hive-addon.protocol then loads from source it generates a second class of
+ ;; the same name and core's addon record no longer satisfies the protocol.
+ ;; Compiling the protocol once makes both sides link to one class:
+ ;;   clojure -M:dev -e "(binding [*compile-path* \"classes\"] (compile 'hive-addon.protocol))"
+ ;; A checkout that runs against local.deps.edn (source core) needs none of it.
  :aliases
- {:test {:extra-paths ["test"]
+ {:test {:extra-paths ["test" "classes"]
          :main-opts ["-m" "hive-carto-flow-vim.test-runner"]}
 
-  :dev {:extra-paths ["test"]}
+  :dev {:extra-paths ["test" "classes"]}
 
   :build {:deps {io.github.hive-agi/hive-build {:mvn/version "0.1.16"}}
           :ns-default hive-build.api}}}
