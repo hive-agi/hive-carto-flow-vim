@@ -10,7 +10,7 @@
   org.clojure/data.json {:mvn/version "2.5.2"}
 
   io.github.hive-agi/hive-carto-flow {:mvn/version "0.1.12"}
-  io.github.hive-agi/hive-vessel {:mvn/version "0.1.0"}
+  io.github.hive-agi/hive-vessel {:mvn/version "0.1.1"}
   io.github.hive-agi/hive-addon {:mvn/version "1.0.3"}
   io.github.hive-agi/hive-events {:mvn/version "0.5.12"}
   io.github.hive-agi/hive-dsl {:mvn/version "0.5.23"}}
