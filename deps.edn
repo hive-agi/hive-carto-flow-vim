@@ -6,14 +6,14 @@
  :mvn/repos {"hive-gitea" {:url "https://gitea.hive-mcp.com/api/packages/hive-agi/maven"}}
 
  :deps
- {org.clojure/clojure {:mvn/version "1.12.5"}
+ {org.clojure/clojure {:mvn/version "1.12.6"}
   org.clojure/data.json {:mvn/version "2.5.2"}
 
-  io.github.hive-agi/hive-carto-flow {:mvn/version "0.1.13"}
-  io.github.hive-agi/hive-vessel {:mvn/version "0.1.2"}
-  io.github.hive-agi/hive-addon {:mvn/version "1.0.8"}
-  io.github.hive-agi/hive-events {:mvn/version "0.5.12"}
-  io.github.hive-agi/hive-dsl {:mvn/version "0.5.23"}}
+  io.github.hive-agi/hive-carto-flow {:mvn/version "0.1.14"}
+  io.github.hive-agi/hive-vessel {:mvn/version "0.1.4"}
+  io.github.hive-agi/hive-addon {:mvn/version "1.0.10"}
+  io.github.hive-agi/hive-events {:mvn/version "0.5.14"}
+  io.github.hive-agi/hive-dsl {:mvn/version "0.5.27"}}
 
  :aliases
  {:test {:extra-paths ["test"]
@@ -21,5 +21,5 @@
 
   :dev {:extra-paths ["test"]}
 
-  :build {:deps {io.github.hive-agi/hive-build {:mvn/version "0.1.16"}}
+  :build {:deps {io.github.hive-agi/hive-build {:mvn/version "0.1.17"}}
           :ns-default hive-build.api}}}
