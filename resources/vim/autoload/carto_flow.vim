@@ -585,5 +585,51 @@ function! carto_flow#detail(...) abort
   setlocal filetype=diff
 endfunction
 
+" ---------------------------------------------------------------- toggling
+
+" Show or hide the timeline. The buffer and its frames outlive a hidden
+" window, so the next toggle shows the same timeline rather than an empty one.
+" Returns 1 when the timeline is visible afterwards.
+function! carto_flow#toggle(...) abort
+  let l:win = bufwinid(bufnr(s:timeline_name))
+  if l:win == -1
+    call call('carto_flow#open', a:000)
+    return 1
+  endif
+  if win_getid() == l:win
+    call carto_flow#close()
+  else
+    let l:back = win_getid()
+    call win_gotoid(l:win)
+    call carto_flow#close()
+    if win_id2win(l:back) > 0
+      call win_gotoid(l:back)
+    endif
+  endif
+  return 0
+endfunction
+
+" Open the timeline and put the cursor on the newest frame, following from
+" there.
+function! carto_flow#show_latest(...) abort
+  call call('carto_flow#open', a:000)
+  call carto_flow#latest()
+  return carto_flow#status().cursor
+endfunction
+
+" Disconnect when connected, connect when not. A disconnect also stops the
+" reconnect timer, so this is the off switch rather than a dropped channel.
+function! carto_flow#toggle_connection(...) abort
+  if carto_flow#connected()
+    call carto_flow#disconnect()
+    echomsg 'carto-flow: disconnected'
+    return 0
+  endif
+  let l:ok = call('carto_flow#connect', a:000)
+  echomsg 'carto-flow: ' . (l:ok ? 'connected ' . carto_flow#status().address
+        \ : 'waiting for hive')
+  return l:ok
+endfunction
+
 let &cpo = s:save_cpo
 unlet s:save_cpo

@@ -73,11 +73,39 @@ Emacs, a tool call, or another vessel), the connected Vim's cursor moves to the
 same frame and an open detail re-renders. Moving with `n`/`p` inside Vim stays
 local to that Vim.
 
+
+## Global keys
+
+The timeline keys above only work inside it, so the plugin also maps four
+actions globally. `<leader>` is your `mapleader`.
+
+| Key | Action |
+| --- | --- |
+| `<leader>cf`, `<F9>` | show or hide the timeline (`:CartoFlowToggle`) |
+| `<leader>cl` | open it on the newest frame and follow from there |
+| `<leader>ce`, `<S-F9>` | follow live edits into the code, or stop |
+| `<leader>cd` | disconnect, or connect again |
+
+Hiding the timeline keeps its buffer and its frames, so the next toggle shows
+the same view rather than an empty one.
+
+Each key is installed only when it is free and nothing you wrote already
+reaches that action, so a vimrc binding wins:
+
+```vim
+nmap <F5> <Plug>(carto-flow-toggle)   " the default <leader>cf and <F9> stand down
+```
+
+The four named mappings are `<Plug>(carto-flow-toggle)`,
+`<Plug>(carto-flow-latest)`, `<Plug>(carto-flow-follow)` and
+`<Plug>(carto-flow-connect)`. `g:carto_flow_no_default_maps = 1` refuses the
+default set entirely and leaves them for you to bind.
+
 Commands: `:CartoFlow [port]`, `:CartoFlowConnect [port]`,
-`:CartoFlowDisconnect`, `:CartoFlowCode`, `:CartoFlowFollow [on|off]`, and
-`:CartoFlowClear`, which clears
-only this Vim's view. `g:carto_flow_auto_open = 1` opens the timeline on the
-first live frame without moving focus.
+`:CartoFlowDisconnect`, `:CartoFlowCode`, `:CartoFlowFollow [on|off]`,
+`:CartoFlowToggle`, and `:CartoFlowClear`, which clears only this Vim's view.
+`g:carto_flow_auto_open = 1` opens the timeline on the first live frame
+without moving focus.
 
 Neovim is not supported, because it has no Vim JSON channels. A separate
 `hive-carto-flow-nvim` addon using msgpack-rpc is the intended route.

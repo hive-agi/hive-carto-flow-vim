@@ -175,6 +175,76 @@
         (finally
           (t/delete-tree! dir))))))
 
+(defn- run-plugin-script
+  "Source the shipped plugin in a headless Vim, run LINES, and return the list
+   the script left in s:out."
+  [dir name lines]
+  (let [plugin-dir (-> (io/resource "vim/plugin/carto_flow.vim") io/file
+                       .getParentFile .getParentFile str)
+        out (io/file dir (str name ".out"))
+        script (io/file dir (str name ".vim"))]
+    (spit script
+          (str/join "\n"
+                    (concat [(str "execute 'set rtp^=' . fnameescape(" (vim-string plugin-dir) ")")]
+                            lines
+                            [(str "call writefile(s:out, " (vim-string (str out)) ")")
+                             "qa!"
+                             ""])))
+    (let [p (.start (doto (ProcessBuilder. [vim-path "-N" "-u" "NONE" "-i" "NONE" "-es"
+                                            "-S" (str script)])
+                      (.redirectInput (ProcessBuilder$Redirect/from (io/file "/dev/null")))
+                      (.redirectErrorStream true)
+                      (.redirectOutput (io/file dir (str name ".vim.out")))))]
+      (is (.waitFor p vim-timeout-seconds TimeUnit/SECONDS) "vim exited in time")
+      (lines-of out))))
+
+(deftest the-default-keys-map-the-named-actions-and-never-take-a-key-that-is-taken
+  (if-not (vim-with-channels?)
+    (println "SKIP vim integration: no" vim-path "with +channel +timers")
+    (let [dir (t/temp-dir)]
+      (try
+        (is (= ["<Plug>(carto-flow-toggle)"
+                "<Plug>(carto-flow-latest)"
+                ":echo 'mine'<CR>"
+                "<Plug>(carto-flow-connect)"
+                "<Plug>(carto-flow-toggle)"
+                "<Plug>(carto-flow-follow)"
+                "hidden" "shown" "hidden"]
+               (run-plugin-script
+                dir "maps"
+                ["let mapleader = ','"
+                 ;; taken before the plugin loads: the plugin must leave it be,
+                 ;; and must still give that action its other default key.
+                 "nnoremap ,ce :echo 'mine'<CR>"
+                 "runtime plugin/carto_flow.vim"
+                 "let s:out = []"
+                 "for s:key in [',cf', ',cl', ',ce', ',cd', '<F9>', '<S-F9>']"
+                 "  call add(s:out, maparg(s:key, 'n'))"
+                 "endfor"
+                 "function! s:visible() abort"
+                 "  return bufwinid(bufnr('carto-flow://timeline')) == -1 ? 'hidden' : 'shown'"
+                 "endfunction"
+                 "call add(s:out, s:visible())"
+                 "call carto_flow#toggle()"
+                 "call add(s:out, s:visible())"
+                 "call carto_flow#toggle()"
+                 "call add(s:out, s:visible())"]))
+            "every free key maps to its named action, a taken one is untouched, and toggle shows then hides")
+        (is (= ["free" "free" "free" "free" "free" "free" "plug"]
+               (run-plugin-script
+                dir "no-maps"
+                ["let mapleader = ','"
+                 "let g:carto_flow_no_default_maps = 1"
+                 "runtime plugin/carto_flow.vim"
+                 "let s:out = []"
+                 "for s:key in [',cf', ',cl', ',ce', ',cd', '<F9>', '<S-F9>']"
+                 "  call add(s:out, empty(maparg(s:key, 'n')) ? 'free' : 'mapped')"
+                 "endfor"
+                 "call add(s:out, empty(maparg('<Plug>(carto-flow-toggle)', 'n')) ? 'no-plug' : 'plug')"]))
+            "the opt-out leaves every key free while the named actions stay bindable")
+        (finally
+          (t/delete-tree! dir))))))
+
 (deftest a-cursor-move-in-core-moves-the-vim-cursor
   (if-not (vim-with-channels?)
     (println "SKIP vim integration: no" vim-path "with +channel +timers")
