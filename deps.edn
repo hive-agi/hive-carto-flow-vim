@@ -10,7 +10,9 @@
   org.clojure/data.json {:mvn/version "2.5.2"}
 
   io.github.hive-agi/hive-carto-flow {:mvn/version "0.1.17"}
-  io.github.hive-agi/hive-vessel {:mvn/version "0.1.8"}
+  ;; 0.1.11 carries the keyed panel repaint. The Vim runtime this addon
+  ;; extracts IS this artifact's, so the pin decides what a user's Vim runs.
+  io.github.hive-agi/hive-vessel {:mvn/version "0.1.11"}
   io.github.hive-agi/hive-addon {:mvn/version "1.0.13"}
   io.github.hive-agi/hive-events {:mvn/version "0.5.17"}
   io.github.hive-agi/hive-dsl {:mvn/version "0.5.30"}}
