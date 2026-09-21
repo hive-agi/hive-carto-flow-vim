@@ -34,16 +34,17 @@
   "A core cursor listener: when core's timeline cursor moves (next!, previous!,
    latest! from any client), put the connected Vim's timeline cursor on the same
    frame. Sends run in order on OUTBOX, an agent, so a slow or absent Vim never
-   blocks whoever moved the cursor. A Vim without the timeline plugin, or none at
-   all, is left alone, and a failed send is dropped: the cursor is a view, and
-   the next move sends it again."
+   blocks whoever moved the cursor. A Vim whose handshake did not confirm
+   `:carto-flow/seek` (no plugin, or a loaded script without carto_flow#seek),
+   or none at all, is left alone, and a failed send is dropped: the cursor is a
+   view, and the next move sends it again."
   [registry resolve-vessel outbox]
   (fn [frame _snapshot]
     (send-off outbox
               (fn [sent]
                 (try
                   (let [vessel (resolve-vessel)]
-                    (if (contains? (:vessel/features vessel) vim-vessel/timeline-feature)
+                    (if (contains? (:vessel/features vessel) vim-vessel/seek-feature)
                       (do (v/dispatch! registry vessel (vim-vessel/seek-op frame))
                           (inc sent))
                       sent))

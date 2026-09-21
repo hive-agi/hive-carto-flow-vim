@@ -36,12 +36,15 @@
   (try (json/read-str text) (catch Throwable _ nil)))
 
 (defn probe-features
-  "Ask the Vim behind TARGET what it advertises. Returns
-   {:features #{kw ...}} and, when the handshake failed, :error."
+  "Ask the Vim behind TARGET what it advertises and which of the functions
+   those features entitle the server to call it defines. Returns
+   {:features #{kw ...}} holding only the confirmed features (see
+   `hive-carto-flow-vim.vessel/confirm-features`) and, when the handshake
+   failed, :error."
   [registry target]
   (let [result (v/dispatch! registry target vim-vessel/features-probe-op)]
     (if-let [results (get-in result [:ok :plan/results])]
-      {:features (vim-vessel/parse-features (decode-reply (first results)))}
+      {:features (vim-vessel/confirm-features (decode-reply (first results)))}
       {:features #{} :error (:error result)})))
 
 (defn- connected!

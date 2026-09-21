@@ -867,6 +867,21 @@ function! carto_flow#toggle_connection(...) abort
   return l:ok
 endfunction
 
+" The features this script can serve, each listed only while every function it
+" entitles hive to call is defined, so the list cannot outlive the functions.
+" hive evals this at handshake unless g:carto_flow_features overrides it.
+function! carto_flow#features() abort
+  let l:table = [['carto-flow/timeline', ['carto_flow#ingest', 'carto_flow#hello']],
+        \ ['carto-flow/seek', ['carto_flow#seek']]]
+  let l:out = []
+  for [l:feature, l:fns] in l:table
+    if empty(filter(copy(l:fns), '!exists("*" . v:val)'))
+      call add(l:out, l:feature)
+    endif
+  endfor
+  return l:out
+endfunction
+
 " --------------------------------------------------------------- hot reload
 
 " A reload leaves the previous script's reconnect timer calling its own, now

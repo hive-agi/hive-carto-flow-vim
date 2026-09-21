@@ -10,7 +10,8 @@
             [hive-carto-flow-vim.paths :as paths]
             [hive-carto-flow-vim.test-support :as t]
             [hive-carto-flow-vim.vessel :as vim-vessel]
-            [hive-vessel.core :as v])
+            [hive-vessel.core :as v]
+            [hive-carto-flow-vim.channel :as channel])
   (:import (java.net InetAddress ServerSocket)))
 
 (def ^:private gated-ids #{"hive.carto-flow" "hive.carto-flow.vim"})
@@ -72,7 +73,7 @@
               (is (true? (:listening? details)))
               (is (true? (:vim-attached? details)))
               (is (true? (:timeline-feature? details)))
-              (is (= #{:carto-flow/timeline} (:features details)))))
+              (is (= #{:carto-flow/timeline :carto-flow/seek} (:features details)))))
           (testing "live frames follow"
             (t/mutate! :carto.mutation/succeeded ["src/a.clj" "src/b.clj"])
             (is (t/eventually #(= 2 (count (t/ingest-messages vim)))))
@@ -120,6 +121,25 @@
         (addon/shutdown! vim-ext)
         (when flow (addon/shutdown! flow))
         (t/delete-tree! dir)))))
+
+(deftest a-vim-whose-script-lacks-seek-is-never-sent-a-cursor-move
+  (doseq [[defined expected-seeks] [[["carto_flow#ingest" "carto_flow#hello"] 0]
+                                    [vim-vessel/probed-fns 1]]]
+    (let [registry (vim-vessel/registry)
+          ch (channel/start! {:port 0 :registry registry})
+          vim (t/fake-vim (channel/port ch) #{:carto-flow/timeline} defined)]
+      (try
+        (is (t/eventually #(some? (channel/vessel ch))) "the handshake completes")
+        (let [outbox (agent 0)
+              follow (vim-addon/cursor-follower registry #(channel/vessel ch) outbox)]
+          (follow {:frame/index 0} nil)
+          (await-for 5000 outbox)
+          (is (= expected-seeks @outbox) (pr-str defined))
+          (is (= expected-seeks (count (t/calls-of vim vim-vessel/seek-fn)))
+              "the Vim is sent exactly the seeks its script can run"))
+        (finally
+          (t/close-vim! vim)
+          (channel/stop! ch))))))
 
 (deftest initialize-without-core-fails-cleanly
   (let [dir (t/temp-dir)
