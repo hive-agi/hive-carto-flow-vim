@@ -28,11 +28,6 @@
 
 (def server-name "hive.carto-flow.vim")
 
-(def features-expr
-  "Vim expression naming the features the connected Vim advertises. The
-   carto_flow plugin sets g:carto_flow_features when it loads."
-  "get(g:, 'carto_flow_features', [])")
-
 (defn frame-message
   "The Vim-side value for FRAME: index, phase, rendered timeline line, detail
    lines, and the frame itself (hive-vessel makes it JSON-safe)."
@@ -79,14 +74,44 @@
   [frame]
   {:op :vim/call :fn seek-fn :args [{"index" (:frame/index frame)}]})
 
+(def seek-feature
+  "Feature granted to a timeline Vim whose loaded script defines `seek-fn`:
+   core's cursor moves are forwarded to it."
+  :carto-flow/seek)
+
+(def feature-fns
+  "Each feature the server may grant: the Vim functions it entitles the server
+   to call, and the advertised feature that makes it probe-able (`:within`). A
+   feature is granted only when every one of its functions is defined in the
+   connected Vim."
+  {timeline-feature {:fns [ingest-fn hello-fn]}
+   seek-feature {:fns [seek-fn] :within timeline-feature}})
+
+(def probed-fns
+  "Every function named in `feature-fns`, in a stable order."
+  (vec (distinct (mapcat :fns (vals feature-fns)))))
+
+(defn- vim-list
+  "Vim list literal of the strings STRS."
+  [strs]
+  (str "[" (str/join ", " (map #(str "'" % "'") strs)) "]"))
+
+(def features-expr
+  "Vim expression answering the handshake: the features the Vim advertises
+   (g:carto_flow_features, else what the loaded script derives through
+   carto_flow#features()) and which of `probed-fns` are defined right now."
+  (str "{'advertised': get(g:, 'carto_flow_features', "
+       "exists('*carto_flow#features') ? carto_flow#features() : []), "
+       "'defined': filter(" (vim-list probed-fns) ", 'exists(\"*\" . v:val)')}"))
+
 (def features-probe-op
-  "Handshake op: Vim's builtin eval of `features-expr`; its reply is the JSON
-   list of advertised feature names."
+  "Handshake op: Vim's builtin eval of `features-expr`; its reply is a JSON
+   object {\"advertised\": [feature ...], \"defined\": [fn ...]}."
   {:op :vim/call :fn "eval" :args [features-expr]})
 
 (defn parse-features
-  "Feature keywords from the decoded probe reply VALUES (\"carto-flow/timeline\"
-   -> :carto-flow/timeline). Anything that is not a list of strings is #{}."
+  "Feature keywords from a decoded list of names (\"carto-flow/timeline\" ->
+   :carto-flow/timeline). Anything that is not a list of strings is #{}."
   [values]
   (if (sequential? values)
     (into #{} (comp (filter string?) (remove str/blank?) (map keyword)) values)
@@ -120,3 +145,24 @@
              (str "let g:carto_flow_runtime = " (vim-quote runtime-hash))
              (str "echon " (vim-quote runtime-sourced))
              "endif"]]}))
+
+(defn confirm-features
+  "The features to register for a Vim, from its decoded handshake REPLY. A
+   feature in `feature-fns` is granted when it, or the feature it is `:within`,
+   is advertised AND every one of its functions is defined; an advertised
+   feature the table does not know passes through. A reply that is not the
+   handshake object grants nothing."
+  [reply]
+  (if-not (map? reply)
+    #{}
+    (let [advertised (parse-features (get reply "advertised"))
+          defined-fns (get reply "defined")
+          defined (if (sequential? defined-fns) (set (filter string? defined-fns)) #{})
+          granted? (fn [feature]
+                     (let [{:keys [fns within]} (feature-fns feature)]
+                       (and (or (contains? advertised feature)
+                                (and within (contains? advertised within)))
+                            (every? defined fns))))]
+      (into (set (remove feature-fns advertised))
+            (filter granted?)
+            (keys feature-fns)))))

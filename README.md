@@ -59,8 +59,21 @@ timeline keeps its frames, cursor and connection, even when the old copy was
 loaded from another directory. So a hot reload of the addon (a new version
 mounted in a live hive) reaches every connected Vim within one reconnect
 interval. The addon's health reports the last sync under `:runtime`
-(`{:hash ... :reloaded? true}`). `g:carto_flow_no_sync = 1` opts a Vim out, for
-example while you develop the plugin from a checkout.
+(`{:hash ... :reloaded? true}`). `g:carto_flow_no_sync = 1` opts a Vim out.
+
+Edits to the plugin itself reach a connected Vim with no remount and no
+reconnect. When the plugin's resources are real files (a source checkout or a
+`:local/root` dependency), the addon polls their hash on a daemon thread every
+`:carto-flow.vim/watch-interval-ms` (default 500). A new hash is acted on once
+it has held for one poll, so a half-written save is never pushed. The addon
+then extracts the runtime again and runs the same sync over the live channel.
+It does not restart the channel or replay the timeline, and unchanged content
+never triggers it. Health shows the watcher under `:runtime-watch`
+(`:watching?`, `:hash`, `:changes`, `:last-error`) and its last push under
+`:runtime` with `:trigger :watch`. A jar-backed plugin cannot change, so no
+watcher is started for it. To watch a directory laid out like `resources/vim`
+instead of the classpath, set `:carto-flow.vim/runtime-root`. To turn the
+watcher off, set `:carto-flow.vim/watch-runtime? false`.
 
 ## Using the timeline
 
