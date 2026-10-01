@@ -22,7 +22,8 @@
    (t/classpath-manifest "hive-carto-flow.edn")
    (update (t/classpath-manifest "hive-carto-flow-vim.edn") :addon/config merge
            {:carto-flow.vim/state-dir (str state-dir)
-            :carto-flow.vim/port port})])
+            :carto-flow.vim/port port}
+           t/no-provisioned-install)])
 
 (defn- mount-all!
   [state-dir port]
