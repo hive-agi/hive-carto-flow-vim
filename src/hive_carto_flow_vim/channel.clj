@@ -44,21 +44,34 @@
       {:features (vim-vessel/parse-features (decode-reply (first results)))}
       {:features #{} :error (:error result)})))
 
+(defn- pinned-server
+  "SERVER as seen through the connection it holds now. hive-vessel's
+   send-command! writes to whatever `(:conn server)` holds at call time, so a
+   descriptor built over SERVER itself follows every later accept, and a
+   presenter bound to one Vim would deliver into the next before that Vim's
+   hello. Over the pinned view a call reaches only this connection and fails
+   once it is closed."
+  [server]
+  (assoc server :conn (atom @(:conn server))))
+
 (defn- connected!
   [{:keys [server registry call-timeout-ms probe-timeout-ms vessel connections
            handshake last-error sync!] :as ch}
    on-connect]
   (reset! vessel nil)
   (swap! connections inc)
-  (let [call-target (assoc (vc/target server)
-                           :vessel/execute! (vc/executor server call-timeout-ms))
+  (let [;; The accept loop is the only thread that accepts, and this runs right
+        ;; after an accept, so :conn holds the connection just made.
+        conn-server (pinned-server server)
+        call-target (assoc (vc/target conn-server)
+                           :vessel/execute! (vc/executor conn-server call-timeout-ms))
         ;; Bring the Vim's plugin up to this runtime BEFORE the probe, so the
         ;; features it reports are the reloaded script's.
         runtime (when sync!
                   (try (sync! registry call-target)
                        (catch Throwable t {:error (or (ex-message t) (str t))})))
-        probe-target (assoc (vc/target server)
-                            :vessel/execute! (vc/executor server probe-timeout-ms))
+        probe-target (assoc (vc/target conn-server)
+                            :vessel/execute! (vc/executor conn-server probe-timeout-ms))
         {:keys [features error]} (probe-features registry probe-target)
         descriptor (cond-> call-target
                      (seq features) (assoc :vessel/features features))]
