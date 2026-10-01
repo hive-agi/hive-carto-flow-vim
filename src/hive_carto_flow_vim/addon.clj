@@ -111,16 +111,25 @@
                                    (channel/resync! ch :watch))})))))
 
 (defn- on-connect
-  "Bring a freshly connected Vim to the timeline: greet it when it runs the
-   timeline plugin, then re-register the presenter so core replays the backlog
-   in order and continues live."
+  "Bring a freshly connected Vim to the timeline: drop the presenter left from
+   before, greet the Vim when it runs the timeline plugin, then register a
+   presenter for it so core replays the backlog in order and continues live.
+
+   The presenter registered at init or for an earlier connection resolves the
+   channel's vessel per delivery, and that vessel is already this Vim. Left in
+   place, a commit landing before the registration below fires its listener,
+   and core's catch-up replays the timeline into this Vim beside the new
+   presenter's own replay (or ahead of the hello). So it goes first. Core's
+   attach! replays and subscribes atomically, so a commit in between is not
+   lost. The new target is pinned to this connection's VESSEL."
   [config registry]
-  (fn [ch vessel]
+  (fn [_ch vessel]
+    (extension/unregister! config presenter-id)
     (when (contains? (:vessel/features vessel) vim-vessel/timeline-feature)
       (v/dispatch! registry vessel
                    (vim-vessel/hello-op (count (:timeline/frames (extension/snapshot config))))))
     (extension/register! config presenter-id
-                         (delivery-target registry #(channel/vessel ch)))))
+                         (delivery-target registry (constantly vessel)))))
 
 (defn- release!
   "Undo whatever of a start got done. Never throws."
