@@ -77,7 +77,8 @@
                                 (t/classpath-manifest "hive-carto-flow.edn")
                                 (update (t/classpath-manifest "hive-carto-flow-vim.edn")
                                         :addon/config merge
-                                        {:carto-flow.vim/state-dir (str dir)})])
+                                        {:carto-flow.vim/state-dir (str dir)}
+                                        t/no-provisioned-install)])
                   host
                   {:license-gate (t/permit-only #{"hive.carto-flow" "hive.carto-flow.vim"})})
           vim (mount-port/registered host "hive.carto-flow.vim")
@@ -102,7 +103,11 @@
                           (.redirectInput (ProcessBuilder$Redirect/from (io/file "/dev/null")))
                           (.redirectErrorStream true)
                           (.redirectOutput (io/file dir "vim.out")))))
-        (is (t/eventually #(= 1 (clients)) 20000) "vim connected")
+        (do (is (t/eventually #(= 1 (clients)) 20000) "vim connected")
+            (is (t/eventually #(= #{:carto-flow/timeline :carto-flow/seek}
+                                  (:features (:details (addon/health vim))))
+                              20000)
+                "the shipped script's features, confirmed function by function by a real Vim"))
         (t/mutate! :carto.mutation/succeeded ["src/a.clj" "src/b.clj"])
         (is (t/eventually #(some #{"filetype=diff"} (lines-of (:detail files))) 30000)
             "vim rendered the timeline and the detail")
@@ -257,7 +262,8 @@
                                 (t/classpath-manifest "hive-carto-flow.edn")
                                 (update (t/classpath-manifest "hive-carto-flow-vim.edn")
                                         :addon/config merge
-                                        {:carto-flow.vim/state-dir (str dir)})])
+                                        {:carto-flow.vim/state-dir (str dir)}
+                                        t/no-provisioned-install)])
                   host
                   {:license-gate (t/permit-only #{"hive.carto-flow" "hive.carto-flow.vim"})})
           vim (mount-port/registered host "hive.carto-flow.vim")
@@ -327,20 +333,31 @@
                                 (t/classpath-manifest "hive-carto-flow.edn")
                                 (update (t/classpath-manifest "hive-carto-flow-vim.edn")
                                         :addon/config merge
-                                        {:carto-flow.vim/state-dir (str dir)})])
+                                        {:carto-flow.vim/state-dir (str dir)}
+                                        t/no-provisioned-install)])
                   host
                   {:license-gate (t/permit-only #{"hive.carto-flow" "hive.carto-flow.vim"})})
           vim (mount-port/registered host "hive.carto-flow.vim")
           flow (mount-port/registered host "hive.carto-flow")
           out (fn [name] (str (io/file dir name)))
-          ;; An older install: the same plugin without :CartoFlowLayout.
+          ;; An older install: the same plugin without :CartoFlowLayout, from
+          ;; before carto_flow#seek and carto_flow#features(), advertising the
+          ;; timeline through the g:carto_flow_features literal plugin/ set.
           stale (io/file dir "stale")
           _ (doseq [rel paths/plugin-files]
               (let [text (slurp (io/resource (str paths/plugin-resource-root rel)))]
                 (io/make-parents (io/file stale rel))
                 (spit (io/file stale rel)
-                      (if (= rel "plugin/carto_flow.vim")
-                        (str/replace text #"(?m)^command! .*CartoFlowLayout\n.*\n" "")
+                      (case rel
+                        "plugin/carto_flow.vim"
+                        (-> text
+                            (str/replace #"(?m)^command! .*CartoFlowLayout\n.*\n" "")
+                            (str/replace #"(?m)^command! -nargs=\? CartoFlow "
+                                         "let g:carto_flow_features = get(g:, 'carto_flow_features', ['carto-flow/timeline'])\n$0"))
+                        "autoload/carto_flow.vim"
+                        (-> text
+                            (str/replace #"(?ms)^function! carto_flow#seek\(.*?^endfunction\n" "")
+                            (str/replace #"(?ms)^function! carto_flow#features\(.*?^endfunction\n" ""))
                         text))))
           script-file (io/file dir "stale.vim")
           process (atom nil)]
@@ -385,8 +402,10 @@
             "health reports the reload")
         (is (= 1 (:connections (:details (addon/health vim))))
             "the reloaded script took the old one's channel over: no second connection")
-        (is (= 1 (:connections (:details (addon/health vim))))
-            "the reloaded script took the old one's channel over: no second connection")
+        (is (= #{:carto-flow/timeline :carto-flow/seek}
+               (:features (:details (addon/health vim))))
+            (str "the sync ran before the probe: the stale script defined no carto_flow#seek,"
+                 " the reloaded one does, so the handshake granted :carto-flow/seek"))
         (finally
           (when-let [^Process p @process]
             (when (.isAlive p)
@@ -462,4 +481,94 @@
                  " refused, a hidden panel opens on the layout chosen meanwhile, and"
                  " g:carto_flow_position alone keeps the classic placement"))
         (finally
+          (t/delete-tree! dir))))))
+
+(deftest editing-the-plugin-reaches-the-connected-vim-without-a-reconnect
+  (if-not (vim-with-channels?)
+    (println "SKIP vim integration: no" vim-path "with +channel +timers")
+    (let [dir (t/temp-dir)
+          ;; A writable copy of resources/vim stands in for a source checkout:
+          ;; the watched root is injected through config, so the test never
+          ;; edits the repository.
+          root (io/file dir "runtime")
+          _ (doseq [rel paths/plugin-files]
+              (io/make-parents (io/file root rel))
+              (spit (io/file root rel) (slurp (io/resource (str paths/plugin-resource-root rel)))))
+          host (mount/atom-mount-host)
+          report (mount/mount!
+                  (mount/solve [t/carto-spec
+                                (t/classpath-manifest "hive-carto-flow.edn")
+                                (update (t/classpath-manifest "hive-carto-flow-vim.edn")
+                                        :addon/config merge
+                                        {:carto-flow.vim/state-dir (str dir)
+                                         :carto-flow.vim/runtime-root (str root)
+                                         :carto-flow.vim/watch-interval-ms 50}
+                                        t/no-provisioned-install)])
+                  host
+                  {:license-gate (t/permit-only #{"hive.carto-flow" "hive.carto-flow.vim"})})
+          vim (mount-port/registered host "hive.carto-flow.vim")
+          flow (mount-port/registered host "hive.carto-flow")
+          out (fn [name] (str (io/file dir name)))
+          script-file (io/file dir "watch.vim")
+          process (atom nil)
+          before (paths/runtime-hash root)]
+      (try
+        (is (:ok? report) (pr-str (:mounted report)))
+        (is (:watching? (:runtime-watch (:details (addon/health vim))))
+            "a runtime that can change is watched")
+        (t/mutate! :carto.mutation/succeeded ["src/a.clj"])
+        (spit script-file
+              (str/join
+               "\n"
+               [(str "let g:carto_flow_port_file = " (vim-string (out "vim.port")))
+                "let g:carto_flow_reconnect_ms = 50"
+                "let g:carto_flow_follow_edits = 0"
+                (str "execute 'set rtp^=' . fnameescape("
+                     (vim-string ((:carto-flow.vim/plugin-dir (addon/hooks vim)))) ")")
+                "runtime plugin/carto_flow.vim"
+                "function! s:wait(cond, seconds) abort"
+                "  let l:start = reltime()"
+                "  while !eval(a:cond) && reltimefloat(reltime(l:start)) < a:seconds"
+                "    sleep 20m"
+                "  endwhile"
+                "endfunction"
+                "CartoFlow"
+                (str "call s:wait('len(carto_flow#frames()) >= 1 && get(g:, \"carto_flow_runtime\", \"\") ==# "
+                     (str/replace (vim-string before) "'" "''") "', 30.0)")
+                (str "call writefile([get(g:, 'carto_flow_runtime', '')], " (vim-string (out "ready")) ")")
+                "call s:wait('exists(\"g:carto_flow_watch_edit\")', 30.0)"
+                (str "call writefile([get(g:, 'carto_flow_watch_edit', ''), get(g:, 'carto_flow_runtime', ''),"
+                     " len(carto_flow#frames()), carto_flow#connected()], " (vim-string (out "edited")) ")")
+                "qa!"
+                ""]))
+        (reset! process
+                (.start (doto (ProcessBuilder. [vim-path "-N" "-u" "NONE" "-i" "NONE" "-es"
+                                                "-S" (str script-file)])
+                          (.redirectInput (ProcessBuilder$Redirect/from (io/file "/dev/null")))
+                          (.redirectErrorStream true)
+                          (.redirectOutput (io/file dir "vim.out")))))
+        (is (t/eventually #(= [before] (lines-of (out "ready"))) 30000)
+            "the connected Vim runs the watched runtime")
+        (is (= 0 (:changes (:runtime-watch (:details (addon/health vim)))))
+            "unchanged content never fires the watch")
+        (spit (io/file root "plugin/carto_flow.vim")
+              "\nlet g:carto_flow_watch_edit = 'edited'\n" :append true)
+        (let [after (paths/runtime-hash root)]
+          (is (not= before after))
+          (is (t/eventually #(lines-of (out "edited")) 30000) "the edit reached the Vim")
+          (is (= ["edited" after "1" "1"] (lines-of (out "edited")))
+              "the running Vim re-sourced the edited plugin, kept its frames and channel")
+          (is (.waitFor ^Process @process vim-timeout-seconds TimeUnit/SECONDS) "vim exited in time")
+          (let [details (:details (addon/health vim))]
+            (is (= {:hash after :reloaded? true :trigger :watch} (:runtime details))
+                "health reports the watch-driven sync")
+            (is (= 1 (:changes (:runtime-watch details))))
+            (is (= 1 (:connections details)) "no reconnect: the same connection carried the sync")))
+        (finally
+          (when-let [^Process p @process]
+            (when (.isAlive p)
+              (println "vim output:" (slurp (io/file dir "vim.out")))
+              (.destroyForcibly p)))
+          (when vim (addon/shutdown! vim))
+          (when flow (addon/shutdown! flow))
           (t/delete-tree! dir))))))

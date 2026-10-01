@@ -80,6 +80,36 @@
     (is (= #{} (sut/parse-features [""])))
     (is (= #{} (sut/parse-features 42)))))
 
+(deftest the-handshake-grants-only-features-whose-functions-are-defined
+  (let [all ["carto_flow#ingest" "carto_flow#hello" "carto_flow#seek"]]
+    (testing "a current script: timeline and seek"
+      (is (= #{:carto-flow/timeline :carto-flow/seek}
+             (sut/confirm-features {"advertised" ["carto-flow/timeline" "carto-flow/seek"]
+                                    "defined" all}))))
+    (testing "an old plugin/ literal advertising timeline alone still earns seek when seek exists"
+      (is (= #{:carto-flow/timeline :carto-flow/seek}
+             (sut/confirm-features {"advertised" ["carto-flow/timeline"] "defined" all}))))
+    (testing "a stale script that predates seek: the flag cannot outlive the function"
+      (is (= #{:carto-flow/timeline}
+             (sut/confirm-features {"advertised" ["carto-flow/timeline" "carto-flow/seek"]
+                                    "defined" ["carto_flow#ingest" "carto_flow#hello"]}))))
+    (testing "an advertised timeline without ingest degrades to the generic panel"
+      (is (= #{} (sut/confirm-features {"advertised" ["carto-flow/timeline"]
+                                        "defined" ["carto_flow#hello"]}))))
+    (testing "defined functions alone advertise nothing: an opt-out holds"
+      (is (= #{} (sut/confirm-features {"advertised" [] "defined" all}))))
+    (testing "unknown advertised features pass through"
+      (is (= #{:x/y} (sut/confirm-features {"advertised" ["x/y"] "defined" []}))))
+    (testing "anything but the handshake object grants nothing"
+      (is (= #{} (sut/confirm-features ["carto-flow/timeline"])))
+      (is (= #{} (sut/confirm-features nil)))
+      (is (= #{} (sut/confirm-features {"advertised" ["carto-flow/timeline"] "defined" "x"}))))))
+
+(deftest the-probe-asks-for-every-function-a-feature-entitles
+  (doseq [f sut/probed-fns]
+    (is (str/includes? sut/features-expr (str "'" f "'")) f))
+  (is (= #{sut/ingest-fn sut/hello-fn sut/seek-fn} (set sut/probed-fns))))
+
 (deftest the-timeline-translator-is-well-formed-data
   (let [t sut/timeline-translator]
     (is (= :carto-flow/frame (:translator/op t)))

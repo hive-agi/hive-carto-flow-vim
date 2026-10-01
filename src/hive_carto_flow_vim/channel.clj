@@ -36,12 +36,15 @@
   (try (json/read-str text) (catch Throwable _ nil)))
 
 (defn probe-features
-  "Ask the Vim behind TARGET what it advertises. Returns
-   {:features #{kw ...}} and, when the handshake failed, :error."
+  "Ask the Vim behind TARGET what it advertises and which of the functions
+   those features entitle the server to call it defines. Returns
+   {:features #{kw ...}} holding only the confirmed features (see
+   `hive-carto-flow-vim.vessel/confirm-features`) and, when the handshake
+   failed, :error."
   [registry target]
   (let [result (v/dispatch! registry target vim-vessel/features-probe-op)]
     (if-let [results (get-in result [:ok :plan/results])]
-      {:features (vim-vessel/parse-features (decode-reply (first results)))}
+      {:features (vim-vessel/confirm-features (decode-reply (first results)))}
       {:features #{} :error (:error result)})))
 
 (defn- pinned-server
@@ -131,6 +134,19 @@
   (try (vc/stop! server) (catch Throwable _ nil))
   (when thread
     (.join thread 2000)))
+
+(defn resync!
+  "Run the channel's SYNC! against the Vim connected now, over the existing
+   connection, and keep its return as the handshake's :runtime, tagged with
+   :trigger TRIGGER. No reconnect, no replay. Returns that runtime map, or nil
+   when no Vim is connected or the channel has no SYNC!. Never throws."
+  [{:keys [registry sync! handshake] :as ch} trigger]
+  (when-let [target (and sync! (some-> ch :vessel deref))]
+    (let [runtime (assoc (try (sync! registry target)
+                              (catch Throwable t {:error (or (ex-message t) (str t))}))
+                         :trigger trigger)]
+      (swap! handshake assoc :runtime runtime)
+      runtime)))
 
 (defn port [ch] (get-in ch [:server :port]))
 
