@@ -165,6 +165,13 @@
    (slurp (or (io/resource (str "META-INF/hive-addons/" file-name))
               (throw (ex-info "manifest not on classpath" {:file file-name}))))))
 
+(def no-provisioned-install
+  "Addon config that points the provisioned-install refresh at nothing, so a
+   test that does not provision never reads or writes the developer's
+   ~/.vim/pack."
+  {:carto-flow.vim/host-record? false
+   :carto-flow.vim/runtime-decls []})
+
 (defn mutate!
   [stage paths]
   (events-observer/notify!

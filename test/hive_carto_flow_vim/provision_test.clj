@@ -25,7 +25,8 @@
         specs [t/carto-spec
                (t/classpath-manifest "hive-carto-flow.edn")
                (update (t/classpath-manifest "hive-carto-flow-vim.edn") :addon/config merge
-                       {:carto-flow.vim/state-dir (str state-dir)})]
+                       {:carto-flow.vim/state-dir (str state-dir)
+                        :carto-flow.vim/home (str home)})]
         report (mount/mount! (mount/solve specs) host
                              {:license-gate (t/permit-only gated-ids)
                               :provision (:provision p)})]

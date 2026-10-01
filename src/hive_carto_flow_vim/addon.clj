@@ -14,7 +14,8 @@
             [hive-carto-flow-vim.paths :as paths]
             [hive-carto-flow-vim.vessel :as vim-vessel]
             [hive-carto-flow-vim.watch :as watch]
-            [hive-vessel.core :as v]))
+            [hive-vessel.core :as v]
+            [hive-carto-flow-vim.pack :as pack]))
 
 (def addon-id-value "hive.carto-flow.vim")
 
@@ -71,19 +72,43 @@
           :reloaded? (= vim-vessel/runtime-sourced (channel/decode-reply (first results)))}
          {:hash hash :error (:error result)})))))
 
+(defn pack-refresher
+  "A (fn [trigger]) that extracts the Vim runtime into DIR, then rewrites the
+   changed files of the install hive-addon's runtime provisioner made from it
+   (see `hive-carto-flow-vim.pack`), so a Vim started next loads the current
+   plugin. An absent install stays absent. The report lands in STATE under
+   :pack-refresh and is returned. Never throws."
+  [state config dir]
+  (fn [trigger]
+    (let [report (try
+                   (pack/refresh! config addon-id-value
+                                  (paths/ensure-plugin-dir! dir (paths/runtime-root config))
+                                  (into (vec paths/hive-vessel-files) paths/plugin-files)
+                                  trigger)
+                   (catch Throwable t
+                     {:trigger trigger :at (java.util.Date.)
+                      :installs [{:status :error :error (or (ex-message t) (str t))}]}))]
+      (swap! state assoc :pack-refresh report)
+      report)))
+
 (defn runtime-watch
   "Start the watch that pushes plugin edits into the connected Vim: when the
-   carto_flow plugin's hash changes, re-run the channel's sync over the live
-   connection (`channel/resync!`). Returns nil, without a thread, when the
-   plugin cannot change (jar-backed and no runtime root) or CONFIG sets
+   carto_flow plugin's hash changes, refresh the provisioned install through
+   REFRESH-PACK! (fn [trigger]), when given, so a Vim started next loads the
+   new plugin too, then re-run the channel's sync over the live connection
+   (`channel/resync!`). Returns nil, without a thread, when the plugin cannot
+   change (jar-backed and no runtime root) or CONFIG sets
    :carto-flow.vim/watch-runtime? false."
-  [config ch]
-  (let [root (paths/runtime-root config)]
-    (when (and (not (false? (:carto-flow.vim/watch-runtime? config)))
-               (paths/runtime-watchable? root))
-      (watch/start! {:hash-fn #(paths/runtime-hash root)
-                     :interval-ms (:carto-flow.vim/watch-interval-ms config)
-                     :on-change (fn [_hash] (channel/resync! ch :watch))}))))
+  ([config ch] (runtime-watch config ch nil))
+  ([config ch refresh-pack!]
+   (let [root (paths/runtime-root config)]
+     (when (and (not (false? (:carto-flow.vim/watch-runtime? config)))
+                (paths/runtime-watchable? root))
+       (watch/start! {:hash-fn #(paths/runtime-hash root)
+                      :interval-ms (:carto-flow.vim/watch-interval-ms config)
+                      :on-change (fn [_hash]
+                                   (when refresh-pack! (refresh-pack! :watch))
+                                   (channel/resync! ch :watch))})))))
 
 (defn- on-connect
   "Bring a freshly connected Vim to the timeline: greet it when it runs the
@@ -138,18 +163,26 @@
             (paths/write-port-file! port-file (channel/port ch))
             (let [plugin (try {:plugin-dir (paths/ensure-plugin-dir! dir (paths/runtime-root config))}
                               (catch Throwable t {:plugin-error (ex-message t)}))
-                  rw (vreset! watch-ref (runtime-watch config ch))]
+                  refresh-pack! (pack-refresher state config dir)]
               (reset! state (merge {:lifecycle :active
                                     :config config
                                     :channel ch
-                                    :runtime-watch rw
                                     :state-dir dir
                                     :port-file port-file}
                                    plugin))
+              (when-not (false? (:carto-flow.vim/refresh-pack? config))
+                (refresh-pack! :initialize))
+              (let [rw (vreset! watch-ref
+                                (runtime-watch config ch
+                                               (when-not (false? (:carto-flow.vim/refresh-pack? config))
+                                                 refresh-pack!)))]
+                (swap! state assoc :runtime-watch rw))
               {:success? true
                :metadata (merge {:port (channel/port ch)
                                  :port-file (str port-file)}
-                                plugin)}))
+                                plugin
+                                (when-let [r (:pack-refresh @state)]
+                                  {:pack-refresh r}))}))
           (catch Throwable t
             (release! config @ch-ref port-file @watch-ref)
             (reset! state {:lifecycle :failed :last-error (ex-message t)})
@@ -182,7 +215,7 @@
 
   (health [_]
     (let [{:keys [lifecycle config channel port-file plugin-dir plugin-error last-error
-                  runtime-watch]} @state
+                  runtime-watch pack-refresh]} @state
           executor (when channel (channel/status channel))
           listening? (boolean (:listening? executor))
           presenter (if (= :active lifecycle)
@@ -201,6 +234,7 @@
                   port-file (assoc :port-file (str port-file))
                   plugin-dir (assoc :plugin-dir plugin-dir)
                   runtime-watch (assoc :runtime-watch (watch/status runtime-watch))
+                  pack-refresh (assoc :pack-refresh pack-refresh)
                   plugin-error (assoc :plugin-error plugin-error)
                   last-error (assoc :last-error last-error))}))
 

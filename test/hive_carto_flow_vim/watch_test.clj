@@ -53,7 +53,8 @@
       (is (= [] @fired))
       (reset! h "b")
       (is (t/eventually #(= ["b"] @fired) 2000))
-      (is (= {:hash "b" :changes 1} (select-keys (watch/status w) [:hash :changes])))
+      (is (t/eventually #(= {:hash "b" :changes 1} (select-keys (watch/status w) [:hash :changes])) 2000)
+          "the change is counted once the callback returns")
       (finally (watch/stop! w)))
     (is (not (:watching? (watch/status w))) "stop! ends the thread")))
 
