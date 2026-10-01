@@ -13,6 +13,7 @@
             [hive-carto-flow-vim.channel :as channel]
             [hive-carto-flow-vim.paths :as paths]
             [hive-carto-flow-vim.vessel :as vim-vessel]
+            [hive-carto-flow-vim.watch :as watch]
             [hive-vessel.core :as v]))
 
 (def addon-id-value "hive.carto-flow.vim")
@@ -55,16 +56,33 @@
    into DIR and have the connected Vim re-source its carto_flow plugin from
    there when the one it runs is not this runtime. A Vim reconnecting after a
    hot reload of this addon so picks up the new plugin without a restart.
+   RUNTIME-ROOT, when given, replaces the classpath as the plugin's source (see
+   `paths/plugin-text`).
    Returns {:hash h :reloaded? bool}, or {:hash h :error e}."
-  [dir]
-  (fn [registry target]
-    (let [plugin-dir (paths/ensure-plugin-dir! dir)
-          hash (paths/runtime-hash)
-          result (v/dispatch! registry target (vim-vessel/sync-op plugin-dir hash))]
-      (if-let [results (get-in result [:ok :plan/results])]
-        {:hash hash
-         :reloaded? (= vim-vessel/runtime-sourced (channel/decode-reply (first results)))}
-        {:hash hash :error (:error result)}))))
+  ([dir] (runtime-sync dir nil))
+  ([dir runtime-root]
+   (fn [registry target]
+     (let [plugin-dir (paths/ensure-plugin-dir! dir runtime-root)
+           hash (paths/runtime-hash runtime-root)
+           result (v/dispatch! registry target (vim-vessel/sync-op plugin-dir hash))]
+       (if-let [results (get-in result [:ok :plan/results])]
+         {:hash hash
+          :reloaded? (= vim-vessel/runtime-sourced (channel/decode-reply (first results)))}
+         {:hash hash :error (:error result)})))))
+
+(defn runtime-watch
+  "Start the watch that pushes plugin edits into the connected Vim: when the
+   carto_flow plugin's hash changes, re-run the channel's sync over the live
+   connection (`channel/resync!`). Returns nil, without a thread, when the
+   plugin cannot change (jar-backed and no runtime root) or CONFIG sets
+   :carto-flow.vim/watch-runtime? false."
+  [config ch]
+  (let [root (paths/runtime-root config)]
+    (when (and (not (false? (:carto-flow.vim/watch-runtime? config)))
+               (paths/runtime-watchable? root))
+      (watch/start! {:hash-fn #(paths/runtime-hash root)
+                     :interval-ms (:carto-flow.vim/watch-interval-ms config)
+                     :on-change (fn [_hash] (channel/resync! ch :watch))}))))
 
 (defn- on-connect
   "Bring a freshly connected Vim to the timeline: greet it when it runs the
@@ -80,7 +98,9 @@
 
 (defn- release!
   "Undo whatever of a start got done. Never throws."
-  [config ch port-file]
+  [config ch port-file runtime-watch]
+  (when runtime-watch
+    (try (watch/stop! runtime-watch) (catch Throwable _ nil)))
   (try (extension/unsubscribe-cursor! config presenter-id) (catch Throwable _ nil))
   (when ch
     (try (channel/stop! ch) (catch Throwable _ nil)))
@@ -96,7 +116,8 @@
       (let [config (merge seed runtime-config)
             dir (paths/state-dir config)
             port-file (paths/port-file config dir)
-            ch-ref (volatile! nil)]
+            ch-ref (volatile! nil)
+            watch-ref (volatile! nil)]
         (try
           (when-not (extension/core-addon config)
             (throw (ex-info "hive.carto-flow is not injected under :mount/dependencies" {})))
@@ -105,7 +126,7 @@
                                     :registry registry
                                     :call-timeout-ms (:carto-flow.vim/call-timeout-ms config)
                                     :probe-timeout-ms (:carto-flow.vim/probe-timeout-ms config)
-                                    :sync! (runtime-sync dir)
+                                    :sync! (runtime-sync dir (paths/runtime-root config))
                                     :on-connect (on-connect config registry)})]
             (vreset! ch-ref ch)
             (when-not (extension/register! config presenter-id
@@ -114,11 +135,13 @@
             (extension/subscribe-cursor! config presenter-id
                                          (cursor-follower registry #(channel/vessel ch) (agent 0)))
             (paths/write-port-file! port-file (channel/port ch))
-            (let [plugin (try {:plugin-dir (paths/ensure-plugin-dir! dir)}
-                              (catch Throwable t {:plugin-error (ex-message t)}))]
+            (let [plugin (try {:plugin-dir (paths/ensure-plugin-dir! dir (paths/runtime-root config))}
+                              (catch Throwable t {:plugin-error (ex-message t)}))
+                  rw (vreset! watch-ref (runtime-watch config ch))]
               (reset! state (merge {:lifecycle :active
                                     :config config
                                     :channel ch
+                                    :runtime-watch rw
                                     :state-dir dir
                                     :port-file port-file}
                                    plugin))
@@ -127,16 +150,16 @@
                                  :port-file (str port-file)}
                                 plugin)}))
           (catch Throwable t
-            (release! config @ch-ref port-file)
+            (release! config @ch-ref port-file @watch-ref)
             (reset! state {:lifecycle :failed :last-error (ex-message t)})
             {:success? false :errors [(or (ex-message t) (str t))]}))))))
 
 (defn- stop!
   [state]
   (locking state
-    (let [{:keys [lifecycle config channel port-file]} @state]
+    (let [{:keys [lifecycle config channel port-file runtime-watch]} @state]
       (when (= :active lifecycle)
-        (release! config channel port-file))
+        (release! config channel port-file runtime-watch))
       (reset! state {:lifecycle :stopped})
       nil)))
 
@@ -157,7 +180,8 @@
   (schema-extensions [_] [])
 
   (health [_]
-    (let [{:keys [lifecycle config channel port-file plugin-dir plugin-error last-error]} @state
+    (let [{:keys [lifecycle config channel port-file plugin-dir plugin-error last-error
+                  runtime-watch]} @state
           executor (when channel (channel/status channel))
           listening? (boolean (:listening? executor))
           presenter (if (= :active lifecycle)
@@ -175,17 +199,18 @@
                   executor (merge (dissoc executor :listening?))
                   port-file (assoc :port-file (str port-file))
                   plugin-dir (assoc :plugin-dir plugin-dir)
+                  runtime-watch (assoc :runtime-watch (watch/status runtime-watch))
                   plugin-error (assoc :plugin-error plugin-error)
                   last-error (assoc :last-error last-error))}))
 
   (excluded-tools [_] #{})
 
   (hooks [_]
-    (let [{:keys [lifecycle channel state-dir port-file]} @state]
+    (let [{:keys [lifecycle config channel state-dir port-file]} @state]
       (if (= :active lifecycle)
         {:carto-flow.vim/port #(channel/port channel)
          :carto-flow.vim/port-file #(str port-file)
-         :carto-flow.vim/plugin-dir #(paths/ensure-plugin-dir! state-dir)
+         :carto-flow.vim/plugin-dir #(paths/ensure-plugin-dir! state-dir (paths/runtime-root config))
          :carto-flow.vim/vessel #(channel/vessel channel)
          v/hook-key vim-vessel/translators}
         {}))))
