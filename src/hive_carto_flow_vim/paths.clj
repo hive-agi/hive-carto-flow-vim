@@ -121,3 +121,15 @@
    plugin) into DIR's plugin directory. Returns its absolute path."
   [dir]
   (extract-runtime! (plugin-dir dir) runtime-sources))
+
+(defn runtime-hash
+  "Hex SHA-256 over the carto_flow plugin files as this classpath ships them.
+   A Vim that last loaded a runtime with another hash runs an older plugin."
+  []
+  (let [digest (java.security.MessageDigest/getInstance "SHA-256")]
+    (doseq [rel plugin-files]
+      (let [resource (or (io/resource (str plugin-resource-root rel))
+                         (throw (ex-info "Vim runtime resource missing from classpath"
+                                         {:resource (str plugin-resource-root rel)})))]
+        (.update digest (.getBytes (str rel "\n" (slurp resource)) "UTF-8"))))
+    (apply str (map #(format "%02x" (bit-and % 0xff)) (.digest digest)))))

@@ -50,6 +50,22 @@
                   (catch Throwable _
                     sent))))))
 
+(defn runtime-sync
+  "The channel's per-connection sync step: extract this classpath's Vim runtime
+   into DIR and have the connected Vim re-source its carto_flow plugin from
+   there when the one it runs is not this runtime. A Vim reconnecting after a
+   hot reload of this addon so picks up the new plugin without a restart.
+   Returns {:hash h :reloaded? bool}, or {:hash h :error e}."
+  [dir]
+  (fn [registry target]
+    (let [plugin-dir (paths/ensure-plugin-dir! dir)
+          hash (paths/runtime-hash)
+          result (v/dispatch! registry target (vim-vessel/sync-op plugin-dir hash))]
+      (if-let [results (get-in result [:ok :plan/results])]
+        {:hash hash
+         :reloaded? (= vim-vessel/runtime-sourced (channel/decode-reply (first results)))}
+        {:hash hash :error (:error result)}))))
+
 (defn- on-connect
   "Bring a freshly connected Vim to the timeline: greet it when it runs the
    timeline plugin, then re-register the presenter so core replays the backlog
@@ -89,6 +105,7 @@
                                     :registry registry
                                     :call-timeout-ms (:carto-flow.vim/call-timeout-ms config)
                                     :probe-timeout-ms (:carto-flow.vim/probe-timeout-ms config)
+                                    :sync! (runtime-sync dir)
                                     :on-connect (on-connect config registry)})]
             (vreset! ch-ref ch)
             (when-not (extension/register! config presenter-id

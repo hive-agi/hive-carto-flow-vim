@@ -48,6 +48,20 @@ Then run `:CartoFlow`, or set `g:carto_flow_autoconnect = 1` to connect on
 VimEnter. It connects using the port file and reconnects on its own when the
 server restarts.
 
+### Hot reload
+
+A running Vim never needs a restart to pick up a newer plugin. On every
+connection the addon extracts its runtime again and compares a hash of the
+carto_flow plugin with `g:carto_flow_runtime` in the Vim. When they differ it
+re-sources the plugin, autoload first, from the extracted directory, through
+Vim's `execute()` over the channel. Old plugins need no new code for this. The
+timeline keeps its frames, cursor and connection, even when the old copy was
+loaded from another directory. So a hot reload of the addon (a new version
+mounted in a live hive) reaches every connected Vim within one reconnect
+interval. The addon's health reports the last sync under `:runtime`
+(`{:hash ... :reloaded? true}`). `g:carto_flow_no_sync = 1` opts a Vim out, for
+example while you develop the plugin from a checkout.
+
 ## Using the timeline
 
 Live frames follow the edit: the changed file opens at the first changed line
