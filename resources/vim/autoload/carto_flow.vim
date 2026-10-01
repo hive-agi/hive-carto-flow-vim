@@ -33,6 +33,27 @@ let s:timeline_name = 'carto-flow://timeline'
 let s:detail_name = 'carto-flow://frame'
 let s:header_size = 3
 
+" Re-sourcing this file keeps its s: state. Sourcing it from another path (a
+" hot reload from the hive-extracted runtime into a Vim that loaded an older
+" copy elsewhere) starts a fresh script whose carto_flow# functions replace
+" the old ones: before they do, take the old script's channel and frames over
+" through its public functions, so the Vim keeps its one connection.
+if !exists('s:frames') && exists('*carto_flow#frames')
+  let s:handoff = {'frames': carto_flow#frames(),
+        \ 'channel': exists('*carto_flow#channel') ? carto_flow#channel() : 0,
+        \ 'status': exists('*carto_flow#status') ? carto_flow#status() : {}}
+  let s:frames = s:handoff.frames
+  let s:cursor = get(s:handoff.status, 'cursor', len(s:frames) - 1)
+  let s:follow = s:cursor == len(s:frames) - 1
+  let s:channel = s:handoff.channel
+  let s:address = get(s:handoff.status, 'address', '')
+  let s:received = get(s:handoff.status, 'received', 0)
+  let s:server = get(s:handoff.status, 'server', {})
+  let s:wanted = type(s:channel) == v:t_channel
+  let s:connected = s:wanted && ch_status(s:channel) ==# 'open'
+  unlet s:handoff
+endif
+
 let s:frames = get(s:, 'frames', [])
 let s:cursor = get(s:, 'cursor', -1)
 let s:follow = get(s:, 'follow', 1)
@@ -845,6 +866,21 @@ function! carto_flow#toggle_connection(...) abort
         \ : 'waiting for hive')
   return l:ok
 endfunction
+
+" --------------------------------------------------------------- hot reload
+
+" A reload leaves the previous script's reconnect timer calling its own, now
+" stale, code. Stop every carto-flow reconnect timer and start this script's,
+" then repaint with the code just loaded.
+for s:info in timer_info()
+  if string(s:info.callback) =~# '_reconnect_tick'''
+    call timer_stop(s:info.id)
+  endif
+endfor
+unlet! s:info
+let s:timer = -1
+call s:schedule_reconnect()
+call s:render()
 
 let &cpo = s:save_cpo
 unlet s:save_cpo

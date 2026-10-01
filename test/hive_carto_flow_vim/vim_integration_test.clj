@@ -8,7 +8,8 @@
             [hive-addon.mount.port :as mount-port]
             [hive-addon.protocol :as addon]
             [hive-carto-flow.render.text :as text]
-            [hive-carto-flow-vim.test-support :as t])
+            [hive-carto-flow-vim.test-support :as t]
+            [hive-carto-flow-vim.paths :as paths])
   (:import (java.lang ProcessBuilder$Redirect)
            (java.util.concurrent TimeUnit)))
 
@@ -55,7 +56,8 @@
     "call carto_flow#detail()"
     (str "call writefile(getline(1, '$') + ['filetype=' . &filetype], " (vim-string detail) ")")
     "call win_gotoid(s:timeline)"
-    "call s:wait('carto_flow#status().received >= 4 && carto_flow#connected()', 30.0)"
+    ;; The end state, not a message count: an extra replay must not end the wait early.
+    "call s:wait('carto_flow#status().received >= 4 && len(carto_flow#frames()) >= 2 && carto_flow#connected()', 30.0)"
     (str "call writefile(getline(1, '$') + [string(carto_flow#status())], " (vim-string out2) ")")
     "qa!"
     ""]))
@@ -306,6 +308,85 @@
         (is (t/eventually #(= ["1"] (lines-of (out "moved-latest"))) 30000)
             "core's latest! moved it back to the newest frame")
         (is (.waitFor ^Process @process vim-timeout-seconds TimeUnit/SECONDS) "vim exited in time")
+        (finally
+          (when-let [^Process p @process]
+            (when (.isAlive p)
+              (println "vim output:" (slurp (io/file dir "vim.out")))
+              (.destroyForcibly p)))
+          (when vim (addon/shutdown! vim))
+          (when flow (addon/shutdown! flow))
+          (t/delete-tree! dir))))))
+
+(deftest a-vim-running-a-stale-plugin-is-hot-reloaded-on-connect
+  (if-not (vim-with-channels?)
+    (println "SKIP vim integration: no" vim-path "with +channel +timers")
+    (let [dir (t/temp-dir)
+          host (mount/atom-mount-host)
+          report (mount/mount!
+                  (mount/solve [t/carto-spec
+                                (t/classpath-manifest "hive-carto-flow.edn")
+                                (update (t/classpath-manifest "hive-carto-flow-vim.edn")
+                                        :addon/config merge
+                                        {:carto-flow.vim/state-dir (str dir)})])
+                  host
+                  {:license-gate (t/permit-only #{"hive.carto-flow" "hive.carto-flow.vim"})})
+          vim (mount-port/registered host "hive.carto-flow.vim")
+          flow (mount-port/registered host "hive.carto-flow")
+          out (fn [name] (str (io/file dir name)))
+          ;; An older install: the same plugin without :CartoFlowLayout.
+          stale (io/file dir "stale")
+          _ (doseq [rel paths/plugin-files]
+              (let [text (slurp (io/resource (str paths/plugin-resource-root rel)))]
+                (io/make-parents (io/file stale rel))
+                (spit (io/file stale rel)
+                      (if (= rel "plugin/carto_flow.vim")
+                        (str/replace text #"(?m)^command! .*CartoFlowLayout\n.*\n" "")
+                        text))))
+          script-file (io/file dir "stale.vim")
+          process (atom nil)]
+      (try
+        (is (:ok? report) (pr-str (:mounted report)))
+        (t/mutate! :carto.mutation/succeeded ["src/a.clj"])
+        (spit script-file
+              (str/join
+               "\n"
+               [(str "let g:carto_flow_port_file = " (vim-string (out "vim.port")))
+                "let g:carto_flow_reconnect_ms = 50"
+                "let g:carto_flow_follow_edits = 0"
+                (str "execute 'set rtp^=' . fnameescape(" (vim-string (str stale)) ")")
+                "runtime plugin/carto_flow.vim"
+                "let s:out = [exists(':CartoFlowLayout')]"
+                "function! s:wait(cond, seconds) abort"
+                "  let l:start = reltime()"
+                "  while !eval(a:cond) && reltimefloat(reltime(l:start)) < a:seconds"
+                "    sleep 20m"
+                "  endwhile"
+                "endfunction"
+                "CartoFlow"
+                "call s:wait('exists(\":CartoFlowLayout\") == 2 && len(carto_flow#frames()) >= 1', 30.0)"
+                "call extend(s:out, [exists(':CartoFlowLayout'), get(g:, 'carto_flow_runtime', ''),"
+                "      \\ len(carto_flow#frames()), carto_flow#connected()])"
+                (str "call writefile(s:out, " (vim-string (out "stale.out")) ")")
+                "qa!"
+                ""]))
+        (reset! process
+                (.start (doto (ProcessBuilder. [vim-path "-N" "-u" "NONE" "-i" "NONE" "-es"
+                                                "-S" (str script-file)])
+                          (.redirectInput (ProcessBuilder$Redirect/from (io/file "/dev/null")))
+                          (.redirectErrorStream true)
+                          (.redirectOutput (io/file dir "vim.out")))))
+        (is (.waitFor ^Process @process vim-timeout-seconds TimeUnit/SECONDS) "vim exited in time")
+        (is (= ["0" "2" (paths/runtime-hash) "1" "1"] (lines-of (out "stale.out")))
+            (str "the stale plugin lacked :CartoFlowLayout; on connect the server re-sourced"
+                 " the current runtime into the running Vim, which kept its channel and"
+                 " received the replay"))
+        (is (= {:hash (paths/runtime-hash) :reloaded? true}
+               (:runtime (:details (addon/health vim))))
+            "health reports the reload")
+        (is (= 1 (:connections (:details (addon/health vim))))
+            "the reloaded script took the old one's channel over: no second connection")
+        (is (= 1 (:connections (:details (addon/health vim))))
+            "the reloaded script took the old one's channel over: no second connection")
         (finally
           (when-let [^Process p @process]
             (when (.isAlive p)
