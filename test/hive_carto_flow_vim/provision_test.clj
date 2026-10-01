@@ -133,6 +133,18 @@
                       20000)
         @last-answer)))
 
+(defn- vim-diagnostics!
+  "What the Vim in SESSION says about itself, for a failure message: its
+   :messages, carto_flow#status(), the auto-open flag and its window layout."
+  [session file]
+  (.delete (io/file file))
+  (sh/sh "tmux" "send-keys" "-t" session "Escape"
+         (str ":call writefile(split(execute('messages'), \"\\n\") + [string(carto_flow#status()),"
+              " string(get(g:, 'carto_flow_auto_open', 'unset')), string(winlayout()), v:version], '" file "')")
+         "Enter")
+  (or (t/eventually #(let [f (io/file file)] (when (.isFile f) (slurp f))) 3000)
+      "(no answer)"))
+
 (defn- fact!
   [event-id payload]
   (events-observer/notify! event-id {:coeffects {:event [event-id payload]}}))
@@ -174,7 +186,10 @@
                               :diff "--- a/src/a.clj\n+++ b/src/a.clj\n@@ -3,1 +4,2 @@\n (defn g [])\n+(defn h [])\n"})))
         (let [state (vim-state! session answer 2)]
           (is (= 2 (:frames state)) (pr-str state))
-          (is (true? (:timeline-window? state)) "auto-open showed the timeline")
+          (is (true? (:timeline-window? state))
+              (str "auto-open showed the timeline"
+                   (when-not (:timeline-window? state)
+                     (str "\nVim says:\n" (vim-diagnostics! session answer)))))
           (is (= "src/a.clj" (:focus state)) "focus stayed in the code window")
           (is (= 5 (:code-line state)) "the live frame moved the code to the diff's first changed line"))
         (is (= "frame #1  succeeded  write-form"
