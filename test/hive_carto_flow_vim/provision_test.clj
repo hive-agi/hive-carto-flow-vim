@@ -133,15 +133,32 @@
                       20000)
         @last-answer)))
 
+(defn- vim-diagnostics!
+  "What the Vim in SESSION says about itself, for a failure message: its
+   :messages, carto_flow#status(), the auto-open flag and its window layout."
+  [session file]
+  (.delete (io/file file))
+  (sh/sh "tmux" "send-keys" "-t" session "Escape"
+         (str ":call writefile(split(execute('messages'), \"\\n\") + [string(carto_flow#status()),"
+              " string(get(g:, 'carto_flow_auto_open', 'unset')), string(winlayout()), v:version], '" file "')")
+         "Enter")
+  (or (t/eventually #(let [f (io/file file)] (when (.isFile f) (slurp f))) 3000)
+      "(no answer)"))
+
 (defn- fact!
   [event-id payload]
   (events-observer/notify! event-id {:coeffects {:event [event-id payload]}}))
 
 (defn- start-vim-in-tmux!
+  "Start Vim in a detached tmux SESSION with HOME's pack dir PREPENDED to
+   'packpath'. Replacing 'packpath' hides the system packages: Vim 9.1's netrw
+   then fails with E919 at startup, Vim sits at the hit-enter prompt, and it
+   answers no channel request until a key is pressed, so the Vim never attaches
+   by itself."
   [session workspace home file]
   (sh/sh "tmux" "new-session" "-d" "-s" session "-x" "160" "-y" "45" "-c" (str workspace)
          (str "env HOME='" home "' TERM=xterm vim -N -u NORC -i NONE"
-              " --cmd 'set packpath=" home "/.vim' " file)))
+              " --cmd 'set packpath^=" home "/.vim' " file)))
 
 (deftest a-vim-started-after-injection-connects-follows-and-pages-by-itself
   (if-not (vim-in-tmux?)
@@ -169,11 +186,16 @@
                               :diff "--- a/src/a.clj\n+++ b/src/a.clj\n@@ -3,1 +4,2 @@\n (defn g [])\n+(defn h [])\n"})))
         (let [state (vim-state! session answer 2)]
           (is (= 2 (:frames state)) (pr-str state))
-          (is (true? (:timeline-window? state)) "auto-open showed the timeline")
+          (is (true? (:timeline-window? state))
+              (str "auto-open showed the timeline"
+                   (when-not (:timeline-window? state)
+                     (str "\nVim says:\n" (vim-diagnostics! session answer)))))
           (is (= "src/a.clj" (:focus state)) "focus stayed in the code window")
           (is (= 5 (:code-line state)) "the live frame moved the code to the diff's first changed line"))
         (is (= "frame #1  succeeded  write-form"
-               (last (ask-vim! session answer (shows "frame #1  succeeded  write-form") "C-w" "k" "Enter")))
+               ;; C-w t: the timeline is the top-left window in every layout
+               ;; (docked left by default, on top in classic).
+               (last (ask-vim! session answer (shows "frame #1  succeeded  write-form") "C-w" "t" "Enter")))
             "<CR> on the timeline opened the latest frame's detail")
         (is (= "frame #0  apply  write-form"
                (last (ask-vim! session answer (shows "frame #0  apply  write-form") "p")))
