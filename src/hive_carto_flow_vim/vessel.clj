@@ -91,3 +91,32 @@
   (if (sequential? values)
     (into #{} (comp (filter string?) (remove str/blank?) (map keyword)) values)
     #{}))
+
+(defn- vim-quote
+  "Vim single-quoted string literal of S."
+  [s]
+  (str "'" (str/replace (str s) "'" "''") "'"))
+
+(def runtime-sourced
+  "What Vim's execute() answers `sync-op` with when it re-sourced the plugin;
+   it answers \"\" when the plugin was already current."
+  "reloaded")
+
+(defn sync-op
+  "Hot-reload op: Vim's builtin execute() re-sources the carto_flow plugin
+   extracted under PLUGIN-DIR unless g:carto_flow_runtime already equals
+   RUNTIME-HASH, then records the hash. The autoload script keeps its frames
+   and connection across a re-source. A Vim that never loaded the plugin, or
+   has g:carto_flow_no_sync set, is left alone."
+  [plugin-dir runtime-hash]
+  (let [source #(str "execute 'source ' . fnameescape(" (vim-quote (str plugin-dir "/" %)) ")")]
+    {:op :vim/call
+     :fn "execute"
+     :args [[(str "if exists('g:loaded_carto_flow') && !get(g:, 'carto_flow_no_sync', 0)"
+                  " && get(g:, 'carto_flow_runtime', '') !=# " (vim-quote runtime-hash))
+             (source "autoload/carto_flow.vim")
+             "unlet! g:loaded_carto_flow"
+             (source "plugin/carto_flow.vim")
+             (str "let g:carto_flow_runtime = " (vim-quote runtime-hash))
+             (str "echon " (vim-quote runtime-sourced))
+             "endif"]]}))

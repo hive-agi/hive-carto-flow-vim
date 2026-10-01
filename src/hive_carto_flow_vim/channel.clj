@@ -46,17 +46,25 @@
 
 (defn- connected!
   [{:keys [server registry call-timeout-ms probe-timeout-ms vessel connections
-           handshake last-error] :as ch}
+           handshake last-error sync!] :as ch}
    on-connect]
   (reset! vessel nil)
   (swap! connections inc)
-  (let [probe-target (assoc (vc/target server)
+  (let [call-target (assoc (vc/target server)
+                           :vessel/execute! (vc/executor server call-timeout-ms))
+        ;; Bring the Vim's plugin up to this runtime BEFORE the probe, so the
+        ;; features it reports are the reloaded script's.
+        runtime (when sync!
+                  (try (sync! registry call-target)
+                       (catch Throwable t {:error (or (ex-message t) (str t))})))
+        probe-target (assoc (vc/target server)
                             :vessel/execute! (vc/executor server probe-timeout-ms))
         {:keys [features error]} (probe-features registry probe-target)
-        descriptor (cond-> (assoc (vc/target server)
-                                  :vessel/execute! (vc/executor server call-timeout-ms))
+        descriptor (cond-> call-target
                      (seq features) (assoc :vessel/features features))]
-    (reset! handshake (cond-> {:features features} error (assoc :error error)))
+    (reset! handshake (cond-> {:features features}
+                        error (assoc :error error)
+                        runtime (assoc :runtime runtime)))
     (reset! vessel descriptor)
     (try
       (when on-connect (on-connect ch descriptor))
@@ -82,12 +90,15 @@
 
 (defn start!
   "Start a hive-vessel vim-channel executor on PORT (0 picks a free one) and
-   an accept loop. ON-CONNECT, (fn [channel vessel]), runs on the loop thread
-   after each connection's handshake. Throws when the port cannot be bound."
-  [{:keys [port registry on-connect call-timeout-ms probe-timeout-ms]}]
+   an accept loop. Each connection first runs SYNC!, (fn [registry target]),
+   whose return is kept as the handshake's :runtime, then the feature probe;
+   ON-CONNECT, (fn [channel vessel]), runs on the loop thread after both.
+   Throws when the port cannot be bound."
+  [{:keys [port registry on-connect sync! call-timeout-ms probe-timeout-ms]}]
   (let [server (vc/start! {:port (or port 0)})
         ch {:server server
             :registry (or registry (vim-vessel/registry))
+            :sync! sync!
             :call-timeout-ms (or call-timeout-ms default-call-timeout-ms)
             :probe-timeout-ms (or probe-timeout-ms default-probe-timeout-ms)
             :vessel (atom nil)
@@ -130,4 +141,5 @@
              :features features
              :timeline-feature? (contains? features vim-vessel/timeline-feature)}
       (:error @handshake) (assoc :handshake-error (:error @handshake))
+      (:runtime @handshake) (assoc :runtime (:runtime @handshake))
       @last-error (assoc :last-error @last-error))))
