@@ -122,6 +122,19 @@
   (when thread
     (.join thread 2000)))
 
+(defn resync!
+  "Run the channel's SYNC! against the Vim connected now, over the existing
+   connection, and keep its return as the handshake's :runtime, tagged with
+   :trigger TRIGGER. No reconnect, no replay. Returns that runtime map, or nil
+   when no Vim is connected or the channel has no SYNC!. Never throws."
+  [{:keys [registry sync! handshake] :as ch} trigger]
+  (when-let [target (and sync! (some-> ch :vessel deref))]
+    (let [runtime (assoc (try (sync! registry target)
+                              (catch Throwable t {:error (or (ex-message t) (str t))}))
+                         :trigger trigger)]
+      (swap! handshake assoc :runtime runtime)
+      runtime)))
+
 (defn port [ch] (get-in ch [:server :port]))
 
 (defn vessel
