@@ -66,6 +66,8 @@ These keys work in the timeline and in the `carto-flow://frame` detail:
 | `o` | open the frame's code at its first changed line |
 | `<CR>` | (timeline) open the frame's detail and diff in a split |
 | `q` | close the window |
+| `v` / `V` | next / previous layout (see below) |
+| `=` | re-fit the panel to the screen |
 
 Core's cursor drives this one: when anything moves the core timeline cursor
 (`:carto-flow/next!`, `:carto-flow/previous!`, `:carto-flow/latest!`, from
@@ -73,10 +75,32 @@ Emacs, a tool call, or another vessel), the connected Vim's cursor moves to the
 same frame and an open detail re-renders. Moving with `n`/`p` inside Vim stays
 local to that Vim.
 
+## Layout
+
+The timeline and the frame detail share one panel, docked on an edge of the
+screen and taking a fixed share of it; the code keeps the rest. A layout names
+both: `left-1/3` is a full-height column a third of the screen wide, with the
+timeline stacked over the detail; `bottom-1/2` is a full-width row half the
+screen tall, with the timeline beside the detail. Any of `left`, `right`, `top`
+and `bottom` with any fraction `N/D` works.
+
+| Setting | Default |
+| --- | --- |
+| `g:carto_flow_layout` | `'left-1/3'` (`'classic'` when only `g:carto_flow_position` is set) |
+| `g:carto_flow_layouts` | `['left-1/3', 'left-1/2', 'bottom-1/3', 'bottom-1/2']`, the ones `v`/`V` cycle |
+| `g:carto_flow_timeline_share` | `0.4`, the timeline's part of the panel beside the detail |
+
+`v` and `V` in the panel, `<leader>cv` anywhere, and `:CartoFlowLayout` with no
+argument step through `g:carto_flow_layouts`; `:CartoFlowLayout bottom-1/3`
+(tab-completes) docks on a named one. A shown panel re-docks at once and keeps
+focus where it was; a hidden one opens on the new layout next time. The panel
+re-fits on a terminal resize. `classic` is the old placement: the timeline at
+`g:carto_flow_position`, the detail split below it.
+
 
 ## Global keys
 
-The timeline keys above only work inside it, so the plugin also maps four
+The timeline keys above only work inside it, so the plugin also maps five
 actions globally. `<leader>` is your `mapleader`.
 
 | Key | Action |
@@ -85,9 +109,10 @@ actions globally. `<leader>` is your `mapleader`.
 | `<leader>cl` | open it on the newest frame and follow from there |
 | `<leader>ce`, `<S-F9>` | follow live edits into the code, or stop |
 | `<leader>cd` | disconnect, or connect again |
+| `<leader>cv` | next layout (`:CartoFlowLayout`) |
 
-Hiding the timeline keeps its buffer and its frames, so the next toggle shows
-the same view rather than an empty one.
+Hiding the panel closes the timeline and the detail and keeps their buffers
+and frames, so the next toggle shows the same view rather than an empty one.
 
 Each key is installed only when it is free and nothing you wrote already
 reaches that action, so a vimrc binding wins:
@@ -96,14 +121,14 @@ reaches that action, so a vimrc binding wins:
 nmap <F5> <Plug>(carto-flow-toggle)   " the default <leader>cf and <F9> stand down
 ```
 
-The four named mappings are `<Plug>(carto-flow-toggle)`,
-`<Plug>(carto-flow-latest)`, `<Plug>(carto-flow-follow)` and
-`<Plug>(carto-flow-connect)`. `g:carto_flow_no_default_maps = 1` refuses the
+The five named mappings are `<Plug>(carto-flow-toggle)`,
+`<Plug>(carto-flow-latest)`, `<Plug>(carto-flow-follow)`,
+`<Plug>(carto-flow-connect)` and `<Plug>(carto-flow-layout)`. `g:carto_flow_no_default_maps = 1` refuses the
 default set entirely and leaves them for you to bind.
 
 Commands: `:CartoFlow [port]`, `:CartoFlowConnect [port]`,
 `:CartoFlowDisconnect`, `:CartoFlowCode`, `:CartoFlowFollow [on|off]`,
-`:CartoFlowToggle`, and `:CartoFlowClear`, which clears only this Vim's view.
+`:CartoFlowToggle`, `:CartoFlowLayout [name]`, and `:CartoFlowClear`, which clears only this Vim's view.
 `g:carto_flow_auto_open = 1` opens the timeline on the first live frame
 without moving focus.
 

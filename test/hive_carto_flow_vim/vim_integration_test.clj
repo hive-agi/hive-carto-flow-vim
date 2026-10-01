@@ -314,3 +314,71 @@
           (when vim (addon/shutdown! vim))
           (when flow (addon/shutdown! flow))
           (t/delete-tree! dir))))))
+
+(deftest the-panel-docks-by-layout-and-v-cycles-the-layouts
+  (if-not (vim-with-channels?)
+    (println "SKIP vim integration: no" vim-path "with +channel +timers")
+    (let [dir (t/temp-dir)]
+      (try
+        (is (= ["left-1/3 timeline:27x22@1,1 frame:27x22@1,1 code:52x22@1,29"
+                "left-1/3 timeline:27x9@1,1 frame:27x12@11,1 code:52x22@1,29"
+                "left-1/2 timeline:40x9@1,1 frame:40x12@11,1 code:39x22@1,42"
+                "bottom-1/3 timeline:32x8@15,1 frame:47x8@15,34 code:80x13@1,1"
+                "bottom-1/2 timeline:32x12@11,1 frame:47x12@11,34 code:80x9@1,1"
+                "bottom-1/3 timeline:32x8@15,1 frame:47x8@15,34 code:80x13@1,1"
+                "right-1/4 timeline:20x9@1,61 frame:20x12@11,61 code:59x22@1,1"
+                "right-1/4" "left-1/3,left-1/2"
+                "hidden"
+                "left-1/2 timeline:40x22@1,1 frame:40x22@1,1 code:39x22@1,42"
+                "classic"]
+               (run-plugin-script
+                dir "layout"
+                ;; -es keeps an 80x24 screen: geometry below is for it.
+                ["runtime plugin/carto_flow.vim"
+                 "let s:out = []"
+                 "function! s:geo(buf) abort"
+                 "  let l:w = bufwinid(a:buf)"
+                 "  let l:w = l:w == -1 ? bufwinid(bufnr('carto-flow://timeline')) : l:w"
+                 "  let l:p = win_screenpos(l:w)"
+                 "  return printf('%dx%d@%d,%d', winwidth(l:w), winheight(l:w), l:p[0], l:p[1])"
+                 "endfunction"
+                 "function! s:dump() abort"
+                 "  let l:code = filter(range(1, winnr('$')), 'bufname(winbufnr(v:val)) !~# \"^carto-flow://\"')[0]"
+                 "  call add(s:out, carto_flow#current_layout()"
+                 "        \\ . ' timeline:' . s:geo(bufnr('carto-flow://timeline'))"
+                 "        \\ . ' frame:' . s:geo(bufnr('carto-flow://frame'))"
+                 "        \\ . ' code:' . s:geo(winbufnr(l:code)))"
+                 "endfunction"
+                 "call carto_flow#hello({'frames': 0})"
+                 "call carto_flow#ingest({'index': 0, 'line': 'f0', 'detail': ['+a']})"
+                 "CartoFlow 1"
+                 "call s:dump()"
+                 "call carto_flow#detail()"
+                 "call s:dump()"
+                 "normal v"
+                 "call s:dump()"
+                 "normal v"
+                 "call s:dump()"
+                 "normal v"
+                 "call s:dump()"
+                 "normal V"
+                 "call s:dump()"
+                 "CartoFlowLayout right-1/4"
+                 "call s:dump()"
+                 "silent! CartoFlowLayout sideways"
+                 "call add(s:out, carto_flow#current_layout())"
+                 "call add(s:out, join(carto_flow#layout_complete('left', '', 0), ','))"
+                 "call carto_flow#toggle()"
+                 "call add(s:out, bufwinid(bufnr('carto-flow://frame')) == -1 ? 'hidden' : 'shown')"
+                 "CartoFlowLayout left-1/2"
+                 "call carto_flow#toggle()"
+                 "call s:dump()"
+                 "unlet g:carto_flow_layout"
+                 "let g:carto_flow_position = 'botright'"
+                 "call add(s:out, carto_flow#current_layout())"]))
+            (str "the panel takes its share of the screen on its edge, timeline and detail"
+                 " share it, v and V cycle, a named layout docks at once, an unknown one is"
+                 " refused, a hidden panel opens on the layout chosen meanwhile, and"
+                 " g:carto_flow_position alone keeps the classic placement"))
+        (finally
+          (t/delete-tree! dir))))))
