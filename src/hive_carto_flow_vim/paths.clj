@@ -100,6 +100,38 @@
   (boolean (and (= port (read-port-file file))
                 (.delete (io/file file)))))
 
+(defn- classpath-text
+  [resource-root rel]
+  (slurp (or (io/resource (str resource-root rel))
+             (throw (ex-info "Vim runtime resource missing from classpath"
+                             {:resource (str resource-root rel)})))))
+
+(defn plugin-text
+  "The text of carto_flow plugin file REL (see `plugin-files`): read from
+   RUNTIME-ROOT, a directory laid out like resources/vim, when one is given,
+   else from the classpath."
+  [runtime-root rel]
+  (if runtime-root
+    (let [f (io/file runtime-root rel)]
+      (if (.isFile f)
+        (slurp f)
+        (throw (ex-info "Vim runtime file missing from runtime root"
+                        {:runtime-root (str runtime-root) :file rel}))))
+    (classpath-text plugin-resource-root rel)))
+
+(defn runtime-root
+  "CONFIG's :carto-flow.vim/runtime-root, the directory the carto_flow plugin
+   is read from instead of the classpath, or nil."
+  [config]
+  (let [explicit (:carto-flow.vim/runtime-root config)]
+    (when (and explicit (not (str/blank? (str explicit))))
+      (io/file (str explicit)))))
+
+(defn- write-when-changed!
+  [^File target ^String content]
+  (when-not (and (.isFile target) (= content (slurp target)))
+    (write-atomically! target content)))
+
 (defn extract-runtime!
   "Extract SOURCES (see `runtime-sources`) from the classpath into ROOT,
    rewriting only files whose content differs. Returns ROOT's absolute path."
@@ -107,29 +139,39 @@
   (let [root (io/file root)]
     (doseq [[resource-root rels] sources
             rel rels]
-      (let [resource (or (io/resource (str resource-root rel))
-                         (throw (ex-info "Vim runtime resource missing from classpath"
-                                         {:resource (str resource-root rel)})))
-            content (slurp resource)
-            target (io/file root rel)]
-        (when-not (and (.isFile target) (= content (slurp target)))
-          (write-atomically! target content))))
+      (write-when-changed! (io/file root rel) (classpath-text resource-root rel)))
     (.getAbsolutePath root)))
 
 (defn ensure-plugin-dir!
   "Extract the full Vim runtime (hive-vessel's channel plugin and the carto_flow
-   plugin) into DIR's plugin directory. Returns its absolute path."
-  [dir]
-  (extract-runtime! (plugin-dir dir) runtime-sources))
+   plugin, the latter from RUNTIME-ROOT when given, see `plugin-text`) into
+   DIR's plugin directory. Returns its absolute path."
+  ([dir] (ensure-plugin-dir! dir nil))
+  ([dir runtime-root]
+   (let [root (plugin-dir dir)]
+     (extract-runtime! root [[hive-vessel-resource-root hive-vessel-files]])
+     (doseq [rel plugin-files]
+       (write-when-changed! (io/file root rel) (plugin-text runtime-root rel)))
+     (.getAbsolutePath root))))
 
 (defn runtime-hash
-  "Hex SHA-256 over the carto_flow plugin files as this classpath ships them.
-   A Vim that last loaded a runtime with another hash runs an older plugin."
-  []
-  (let [digest (java.security.MessageDigest/getInstance "SHA-256")]
-    (doseq [rel plugin-files]
-      (let [resource (or (io/resource (str plugin-resource-root rel))
-                         (throw (ex-info "Vim runtime resource missing from classpath"
-                                         {:resource (str plugin-resource-root rel)})))]
-        (.update digest (.getBytes (str rel "\n" (slurp resource)) "UTF-8"))))
-    (apply str (map #(format "%02x" (bit-and % 0xff)) (.digest digest)))))
+  "Hex SHA-256 over the carto_flow plugin files as this classpath ships them,
+   or as RUNTIME-ROOT holds them when given. A Vim that last loaded a runtime
+   with another hash runs an older plugin."
+  ([] (runtime-hash nil))
+  ([runtime-root]
+   (let [digest (java.security.MessageDigest/getInstance "SHA-256")]
+     (doseq [rel plugin-files]
+       (.update digest (.getBytes (str rel "\n" (plugin-text runtime-root rel)) "UTF-8")))
+     (apply str (map #(format "%02x" (bit-and % 0xff)) (.digest digest))))))
+
+(defn runtime-watchable?
+  "Whether the carto_flow plugin can change under a running JVM: it is read
+   from RUNTIME-ROOT, or at least one of its classpath resources is a real
+   file (a source checkout, a :local/root dep). Jar-backed resources never
+   change, so there is nothing to watch."
+  [runtime-root]
+  (boolean
+   (or runtime-root
+       (some #(= "file" (some-> (io/resource (str plugin-resource-root %)) .getProtocol))
+             plugin-files))))
