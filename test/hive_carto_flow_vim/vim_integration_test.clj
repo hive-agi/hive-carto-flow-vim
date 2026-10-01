@@ -102,7 +102,11 @@
                           (.redirectInput (ProcessBuilder$Redirect/from (io/file "/dev/null")))
                           (.redirectErrorStream true)
                           (.redirectOutput (io/file dir "vim.out")))))
-        (is (t/eventually #(= 1 (clients)) 20000) "vim connected")
+        (do (is (t/eventually #(= 1 (clients)) 20000) "vim connected")
+            (is (t/eventually #(= #{:carto-flow/timeline :carto-flow/seek}
+                                  (:features (:details (addon/health vim))))
+                              20000)
+                "the shipped script's features, confirmed function by function by a real Vim"))
         (t/mutate! :carto.mutation/succeeded ["src/a.clj" "src/b.clj"])
         (is (t/eventually #(some #{"filetype=diff"} (lines-of (:detail files))) 30000)
             "vim rendered the timeline and the detail")
@@ -333,14 +337,24 @@
           vim (mount-port/registered host "hive.carto-flow.vim")
           flow (mount-port/registered host "hive.carto-flow")
           out (fn [name] (str (io/file dir name)))
-          ;; An older install: the same plugin without :CartoFlowLayout.
+          ;; An older install: the same plugin without :CartoFlowLayout, from
+          ;; before carto_flow#seek and carto_flow#features(), advertising the
+          ;; timeline through the g:carto_flow_features literal plugin/ set.
           stale (io/file dir "stale")
           _ (doseq [rel paths/plugin-files]
               (let [text (slurp (io/resource (str paths/plugin-resource-root rel)))]
                 (io/make-parents (io/file stale rel))
                 (spit (io/file stale rel)
-                      (if (= rel "plugin/carto_flow.vim")
-                        (str/replace text #"(?m)^command! .*CartoFlowLayout\n.*\n" "")
+                      (case rel
+                        "plugin/carto_flow.vim"
+                        (-> text
+                            (str/replace #"(?m)^command! .*CartoFlowLayout\n.*\n" "")
+                            (str/replace #"(?m)^command! -nargs=\? CartoFlow "
+                                         "let g:carto_flow_features = get(g:, 'carto_flow_features', ['carto-flow/timeline'])\n$0"))
+                        "autoload/carto_flow.vim"
+                        (-> text
+                            (str/replace #"(?ms)^function! carto_flow#seek\(.*?^endfunction\n" "")
+                            (str/replace #"(?ms)^function! carto_flow#features\(.*?^endfunction\n" ""))
                         text))))
           script-file (io/file dir "stale.vim")
           process (atom nil)]
@@ -385,8 +399,10 @@
             "health reports the reload")
         (is (= 1 (:connections (:details (addon/health vim))))
             "the reloaded script took the old one's channel over: no second connection")
-        (is (= 1 (:connections (:details (addon/health vim))))
-            "the reloaded script took the old one's channel over: no second connection")
+        (is (= #{:carto-flow/timeline :carto-flow/seek}
+               (:features (:details (addon/health vim))))
+            (str "the sync ran before the probe: the stale script defined no carto_flow#seek,"
+                 " the reloaded one does, so the handshake granted :carto-flow/seek"))
         (finally
           (when-let [^Process p @process]
             (when (.isAlive p)

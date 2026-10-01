@@ -43,11 +43,12 @@ if !has('channel') || !has('timers')
   finish
 endif
 
-" What this Vim advertises to hive over the hive-vessel handshake. The server
-" reads it (eval of g:carto_flow_features) and only then lowers a carto-flow
-" frame to carto_flow#ingest; a Vim without this plugin gets the generic
-" hive-vessel panel instead.
-let g:carto_flow_features = get(g:, 'carto_flow_features', ['carto-flow/timeline'])
+" What this Vim advertises to hive over the hive-vessel handshake is
+" carto_flow#features(), derived from the functions the loaded autoload script
+" defines; g:carto_flow_features, when set, replaces it. The server also checks
+" each function a feature entitles it to call before lowering a frame to
+" carto_flow#ingest or a cursor move to carto_flow#seek; a Vim without this
+" plugin gets the generic hive-vessel panel instead.
 
 command! -nargs=? CartoFlow call carto_flow#open(<f-args>)
 command! -nargs=? CartoFlowConnect call carto_flow#connect(<f-args>)

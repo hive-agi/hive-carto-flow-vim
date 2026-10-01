@@ -11,7 +11,8 @@
             [clojure.java.io :as io]
             [hive-addon.protocol :as addon]
             [hive-carto-flow-vim.channel :as channel]
-            [hive.events.observer :as events-observer])
+            [hive.events.observer :as events-observer]
+            [hive-carto-flow-vim.vessel :as vim-vessel])
   (:import (java.io BufferedReader InputStreamReader OutputStreamWriter)
            (java.net Socket SocketTimeoutException)
            (java.nio.charset StandardCharsets)
@@ -46,18 +47,22 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- reply-for
-  [features [_ f args]]
+  [features defined [_ f args]]
   (cond
     (and (= "eval" f) (re-find #"carto_flow_features" (str (first args))))
-    (vec (map #(if (keyword? %) (subs (str %) 1) (str %)) features))
+    {"advertised" (vec (map #(if (keyword? %) (subs (str %) 1) (str %)) features))
+     "defined" (vec defined)}
 
     :else "ok"))
 
 (defn fake-vim
-  "Connect to PORT as Vim would and answer channel calls. Returns a handle whose
-   :commands atom holds every decoded command, oldest first."
+  "Connect to PORT as Vim would and answer channel calls. FEATURES is what the
+   fake advertises and DEFINED the carto_flow functions it claims to define (by
+   default every one the server probes for). Returns a handle whose :commands
+   atom holds every decoded command, oldest first."
   ([port] (fake-vim port #{:carto-flow/timeline}))
-  ([port features]
+  ([port features] (fake-vim port features vim-vessel/probed-fns))
+  ([port features defined]
    (let [socket (Socket. "127.0.0.1" (int port))
          reader (BufferedReader. (InputStreamReader. (.getInputStream socket) StandardCharsets/UTF_8))
          writer (OutputStreamWriter. (.getOutputStream socket) StandardCharsets/UTF_8)
@@ -73,7 +78,7 @@
                                      id (last command)]
                                  (swap! commands conj command)
                                  (when (number? id)
-                                   (.write writer (str (json/write-str [id (reply-for features command)]) "\n"))
+                                   (.write writer (str (json/write-str [id (reply-for features defined command)]) "\n"))
                                    (.flush writer)))
                                (reset! running? false)))
                            (catch Throwable _ nil)))
