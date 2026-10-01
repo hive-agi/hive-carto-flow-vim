@@ -15,7 +15,12 @@
 "   g:carto_flow_reconnect_ms  reconnect interval in ms (default 2000)
 "   g:carto_flow_waittime      ch_open waittime in ms (default 100)
 "   g:carto_flow_max_frames    frames kept in this Vim (default 1000)
-"   g:carto_flow_position      modifier placing the timeline window (default 'topleft')
+"   g:carto_flow_layout        panel layout: left|right|top|bottom-N/D or classic
+"                              (default 'left-1/3'; 'classic' when g:carto_flow_position is set)
+"   g:carto_flow_layouts       layouts v / V / :CartoFlowLayout cycle through
+"                              (default ['left-1/3', 'left-1/2', 'bottom-1/3', 'bottom-1/2'])
+"   g:carto_flow_timeline_share share of the panel the timeline takes beside the detail (default 0.4)
+"   g:carto_flow_position      modifier placing the timeline window in the classic layout (default 'topleft')
 "   g:carto_flow_follow_edits  open the edited file at the changed line on live frames (default 1)
 "   g:carto_flow_auto_open     open the timeline, keeping focus, on the first live frame (default 0)
 "   g:carto_flow_roots         directories relative frame paths are resolved against (cwd last)
@@ -450,6 +455,197 @@ function! carto_flow#clear() abort
   call s:render()
 endfunction
 
+" -------------------------------------------------------------------- layout
+"
+" A layout names the screen edge the carto-flow panel docks on and the share
+" of the screen it takes: 'left-1/3' is a full-height column a third of the
+" screen wide, 'bottom-1/2' a full-width row half the screen tall. The timeline
+" and the frame detail share that panel, stacked in a column and side by side
+" in a row, so the code keeps the rest of the screen. 'classic' is the old
+" placement: g:carto_flow_position for the timeline, the detail split below.
+
+function! s:layouts() abort
+  return get(g:, 'carto_flow_layouts', ['left-1/3', 'left-1/2', 'bottom-1/3', 'bottom-1/2'])
+endfunction
+
+function! carto_flow#current_layout() abort
+  if exists('g:carto_flow_layout')
+    return g:carto_flow_layout
+  endif
+  return exists('g:carto_flow_position') ? 'classic' : 'left-1/3'
+endfunction
+
+" {'edge': 'left'|'right'|'top'|'bottom', 'ratio': 0 < r < 1} for NAME,
+" {'edge': 'classic'} for 'classic', {} for anything else.
+function! carto_flow#parse_layout(name) abort
+  if type(a:name) != v:t_string
+    return {}
+  endif
+  if a:name ==# 'classic'
+    return {'edge': 'classic'}
+  endif
+  let l:m = matchlist(a:name, '^\(left\|right\|top\|bottom\)-\(\d\+\)/\(\d\+\)$')
+  if empty(l:m)
+    return {}
+  endif
+  let [l:n, l:d] = [str2nr(l:m[2]), str2nr(l:m[3])]
+  if l:n <= 0 || l:n >= l:d
+    return {}
+  endif
+  return {'edge': l:m[1], 'ratio': 1.0 * l:n / l:d}
+endfunction
+
+function! s:spec() abort
+  let l:spec = carto_flow#parse_layout(carto_flow#current_layout())
+  return empty(l:spec) ? carto_flow#parse_layout('left-1/3') : l:spec
+endfunction
+
+function! s:side(spec) abort
+  return index(['left', 'right'], a:spec.edge) >= 0
+endfunction
+
+" Open the timeline window on the layout's edge, on BUF or on a new buffer
+" when BUF is -1. Leaves focus in it.
+function! s:open_timeline_window(buf) abort
+  let l:spec = s:spec()
+  let l:mods = get({'left': 'topleft vertical', 'right': 'botright vertical',
+        \ 'top': 'topleft', 'bottom': 'botright'}, l:spec.edge,
+        \ get(g:, 'carto_flow_position', 'topleft'))
+  execute 'silent ' . l:mods . (a:buf == -1 ? ' new' : ' sbuffer ' . a:buf)
+endfunction
+
+" Open the detail window inside the panel, next to the timeline when it is
+" shown, on BUF or on a new buffer when BUF is -1. Leaves focus in it.
+function! s:open_detail_window(buf) abort
+  let l:spec = s:spec()
+  let l:timeline = bufwinid(bufnr(s:timeline_name))
+  let l:mods = 'belowright'
+  if l:spec.edge !=# 'classic' && l:timeline != -1
+    call win_gotoid(l:timeline)
+    let l:mods = s:side(l:spec) ? 'belowright' : 'belowright vertical'
+  endif
+  execute 'silent ' . l:mods . (a:buf == -1 ? ' new' : ' sbuffer ' . a:buf)
+endfunction
+
+" Give the panel its share of the screen and split it between timeline and
+" detail (g:carto_flow_timeline_share of the panel, default 2/5, to the
+" timeline). The panel windows keep their size when the code window splits.
+function! s:size_panel() abort
+  let l:spec = s:spec()
+  if l:spec.edge ==# 'classic'
+    return
+  endif
+  let l:wins = filter([bufwinid(bufnr(s:timeline_name)), bufwinid(bufnr(s:detail_name))],
+        \ 'v:val != -1')
+  if empty(l:wins) || len(l:wins) == winnr('$')
+    return
+  endif
+  let l:share = get(g:, 'carto_flow_timeline_share', 0.4)
+  if s:side(l:spec)
+    let l:size = max([20, float2nr(round(&columns * l:spec.ratio))])
+    for l:win in l:wins
+      call setwinvar(l:win, '&winfixwidth', 0)
+      call win_execute(l:win, 'vertical resize ' . l:size)
+      call setwinvar(l:win, '&winfixwidth', 1)
+    endfor
+    if len(l:wins) == 2
+      let l:total = winheight(l:wins[0]) + winheight(l:wins[1]) + 1
+      call win_execute(l:wins[0], 'resize ' . max([5, float2nr(round(l:total * l:share))]))
+    endif
+  else
+    let l:size = max([6, float2nr(round((&lines - &cmdheight) * l:spec.ratio))])
+    for l:win in l:wins
+      call setwinvar(l:win, '&winfixheight', 0)
+      call win_execute(l:win, 'resize ' . l:size)
+      call setwinvar(l:win, '&winfixheight', 1)
+    endfor
+    if len(l:wins) == 2
+      let l:total = winwidth(l:wins[0]) + winwidth(l:wins[1]) + 1
+      call win_execute(l:wins[0], 'vertical resize ' . max([30, float2nr(round(l:total * l:share))]))
+    endif
+  endif
+endfunction
+
+" Re-dock a shown panel under the current layout: close its windows, open
+" them again on the new edge, size them, and give focus back.
+function! s:apply_layout() abort
+  let l:tbuf = bufnr(s:timeline_name)
+  let l:dbuf = bufnr(s:detail_name)
+  let l:twin = l:tbuf == -1 ? -1 : bufwinid(l:tbuf)
+  let l:dwin = l:dbuf == -1 ? -1 : bufwinid(l:dbuf)
+  if l:twin == -1 && l:dwin == -1
+    return
+  endif
+  let l:back = win_getid()
+  let l:focus = l:back == l:twin ? 'timeline' : l:back == l:dwin ? 'detail' : 'code'
+  if !s:code_window()
+    " Closing the panel must not close the last window.
+    execute 'silent ' . get(g:, 'carto_flow_code_position', 'botright') . ' new'
+  endif
+  let l:code = s:code_window()
+  for l:buf in [l:tbuf, l:dbuf]
+    for l:win in (l:buf == -1 ? [] : win_findbuf(l:buf))
+      call win_gotoid(l:win)
+      close
+    endfor
+  endfor
+  call win_gotoid(l:code)
+  if l:twin != -1
+    call s:open_timeline_window(l:tbuf)
+    call s:render()
+  endif
+  if l:dwin != -1
+    call s:open_detail_window(l:dbuf)
+  endif
+  call s:size_panel()
+  if l:focus ==# 'timeline'
+    call win_gotoid(bufwinid(l:tbuf))
+  elseif l:focus ==# 'detail'
+    call win_gotoid(bufwinid(l:dbuf))
+  elseif win_id2win(l:back) > 0
+    call win_gotoid(l:back)
+  else
+    call win_gotoid(l:code)
+  endif
+endfunction
+
+" :CartoFlowLayout [name] -- switch to layout NAME, or with no argument to the
+" next one in g:carto_flow_layouts; a negative count steps back. A shown panel
+" re-docks at once, a hidden one opens there next time. Returns the layout in
+" force afterwards; an unknown name changes nothing.
+function! carto_flow#layout(...) abort
+  let l:arg = a:0 && type(a:1) == v:t_string ? trim(a:1) : ''
+  let l:step = a:0 && type(a:1) == v:t_number ? a:1 : 1
+  if !empty(l:arg)
+    if empty(carto_flow#parse_layout(l:arg))
+      echohl ErrorMsg
+      echomsg 'carto-flow: unknown layout ' . l:arg
+            \ . ' (want classic or left|right|top|bottom-N/D, e.g. left-1/3)'
+      echohl None
+      return carto_flow#current_layout()
+    endif
+    let g:carto_flow_layout = l:arg
+  else
+    let l:all = s:layouts()
+    let l:at = index(l:all, carto_flow#current_layout())
+    let l:at = l:at < 0 ? (l:step > 0 ? -1 : 0) : l:at
+    let g:carto_flow_layout = l:all[(l:at + l:step) % len(l:all)]
+  endif
+  call s:apply_layout()
+  echomsg 'carto-flow: layout ' . g:carto_flow_layout
+  return g:carto_flow_layout
+endfunction
+
+function! carto_flow#layout_complete(arglead, cmdline, cursorpos) abort
+  let l:names = s:layouts() + ['classic']
+  return filter(uniq(l:names), 'stridx(v:val, a:arglead) == 0')
+endfunction
+
+" Re-fit the panel to the screen, for after a terminal resize.
+function! carto_flow#refit() abort
+  call s:size_panel()
+endfunction
+
 " ------------------------------------------------------------------- buffers
 
 function! s:render() abort
@@ -486,6 +682,9 @@ function! s:setup_timeline() abort
   nnoremap <buffer> <silent> <CR> :<C-u>call carto_flow#detail_at_line(line('.'))<CR>
   nnoremap <buffer> <silent> o :<C-u>call carto_flow#open_code_at_line(line('.'))<CR>
   nnoremap <buffer> <silent> q :<C-u>call carto_flow#close()<CR>
+  nnoremap <buffer> <silent> v :<C-u>call carto_flow#layout(v:count1)<CR>
+  nnoremap <buffer> <silent> V :<C-u>call carto_flow#layout(-v:count1)<CR>
+  nnoremap <buffer> <silent> = :<C-u>call carto_flow#refit()<CR>
 endfunction
 
 " The detail buffer pages frames with the timeline's keys; moving re-renders
@@ -499,6 +698,9 @@ function! s:setup_detail() abort
   nnoremap <buffer> <silent> G :<C-u>call carto_flow#latest()<CR>
   nnoremap <buffer> <silent> o :<C-u>call carto_flow#open_code()<CR>
   nnoremap <buffer> <silent> q :<C-u>close<CR>
+  nnoremap <buffer> <silent> v :<C-u>call carto_flow#layout(v:count1)<CR>
+  nnoremap <buffer> <silent> V :<C-u>call carto_flow#layout(-v:count1)<CR>
+  nnoremap <buffer> <silent> = :<C-u>call carto_flow#refit()<CR>
 endfunction
 
 function! s:detail_lines(i) abort
@@ -534,11 +736,19 @@ function! carto_flow#open(...) abort
   if l:win != -1
     call win_gotoid(l:win)
   elseif l:buf != -1
-    execute 'silent ' . get(g:, 'carto_flow_position', 'topleft') . ' sbuffer ' . l:buf
+    call s:open_timeline_window(l:buf)
+    if bufwinid(bufnr(s:detail_name)) != -1
+      " A detail outlived its timeline: dock both again, focus on the timeline.
+      call s:apply_layout()
+      call win_gotoid(bufwinid(l:buf))
+    else
+      call s:size_panel()
+    endif
   else
-    execute 'silent ' . get(g:, 'carto_flow_position', 'topleft') . ' new'
+    call s:open_timeline_window(-1)
     execute 'silent file ' . fnameescape(s:timeline_name)
     call s:setup_timeline()
+    call s:size_panel()
   endif
   call s:render()
 endfunction
@@ -572,9 +782,9 @@ function! carto_flow#detail(...) abort
   if l:win != -1
     call win_gotoid(l:win)
   elseif l:buf != -1
-    execute 'silent belowright sbuffer ' . l:buf
+    call s:open_detail_window(l:buf)
   else
-    execute 'silent belowright new'
+    call s:open_detail_window(-1)
     execute 'silent file ' . fnameescape(s:detail_name)
   endif
   call s:setup_detail()
@@ -583,12 +793,17 @@ function! carto_flow#detail(...) abort
   call setline(1, l:lines)
   setlocal nomodifiable
   setlocal filetype=diff
+  if l:win == -1
+    let l:here = win_getid()
+    call s:size_panel()
+    call win_gotoid(l:here)
+  endif
 endfunction
 
 " ---------------------------------------------------------------- toggling
 
-" Show or hide the timeline. The buffer and its frames outlive a hidden
-" window, so the next toggle shows the same timeline rather than an empty one.
+" Show or hide the panel: hiding closes the timeline and the detail beside it.
+" The buffers and their frames outlive a hidden window, so the next toggle shows the same timeline rather than an empty one.
 " Returns 1 when the timeline is visible afterwards.
 function! carto_flow#toggle(...) abort
   let l:win = bufwinid(bufnr(s:timeline_name))
@@ -596,15 +811,15 @@ function! carto_flow#toggle(...) abort
     call call('carto_flow#open', a:000)
     return 1
   endif
-  if win_getid() == l:win
+  let l:back = win_getid()
+  let l:detail = bufnr(s:detail_name)
+  for l:id in win_findbuf(bufnr(s:timeline_name))
+        \ + (l:detail == -1 ? [] : win_findbuf(l:detail))
+    call win_gotoid(l:id)
     call carto_flow#close()
-  else
-    let l:back = win_getid()
-    call win_gotoid(l:win)
-    call carto_flow#close()
-    if win_id2win(l:back) > 0
-      call win_gotoid(l:back)
-    endif
+  endfor
+  if win_id2win(l:back) > 0
+    call win_gotoid(l:back)
   endif
   return 0
 endfunction
