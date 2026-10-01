@@ -77,7 +77,8 @@
                                 (t/classpath-manifest "hive-carto-flow.edn")
                                 (update (t/classpath-manifest "hive-carto-flow-vim.edn")
                                         :addon/config merge
-                                        {:carto-flow.vim/state-dir (str dir)})])
+                                        {:carto-flow.vim/state-dir (str dir)}
+                                        t/no-provisioned-install)])
                   host
                   {:license-gate (t/permit-only #{"hive.carto-flow" "hive.carto-flow.vim"})})
           vim (mount-port/registered host "hive.carto-flow.vim")
@@ -257,7 +258,8 @@
                                 (t/classpath-manifest "hive-carto-flow.edn")
                                 (update (t/classpath-manifest "hive-carto-flow-vim.edn")
                                         :addon/config merge
-                                        {:carto-flow.vim/state-dir (str dir)})])
+                                        {:carto-flow.vim/state-dir (str dir)}
+                                        t/no-provisioned-install)])
                   host
                   {:license-gate (t/permit-only #{"hive.carto-flow" "hive.carto-flow.vim"})})
           vim (mount-port/registered host "hive.carto-flow.vim")
@@ -327,7 +329,8 @@
                                 (t/classpath-manifest "hive-carto-flow.edn")
                                 (update (t/classpath-manifest "hive-carto-flow-vim.edn")
                                         :addon/config merge
-                                        {:carto-flow.vim/state-dir (str dir)})])
+                                        {:carto-flow.vim/state-dir (str dir)}
+                                        t/no-provisioned-install)])
                   host
                   {:license-gate (t/permit-only #{"hive.carto-flow" "hive.carto-flow.vim"})})
           vim (mount-port/registered host "hive.carto-flow.vim")
@@ -483,7 +486,8 @@
                                         :addon/config merge
                                         {:carto-flow.vim/state-dir (str dir)
                                          :carto-flow.vim/runtime-root (str root)
-                                         :carto-flow.vim/watch-interval-ms 50})])
+                                         :carto-flow.vim/watch-interval-ms 50}
+                                        t/no-provisioned-install)])
                   host
                   {:license-gate (t/permit-only #{"hive.carto-flow" "hive.carto-flow.vim"})})
           vim (mount-port/registered host "hive.carto-flow.vim")

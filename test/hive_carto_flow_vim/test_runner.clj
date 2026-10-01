@@ -3,6 +3,7 @@
             [hive-carto-flow-vim.paths-test]
             [hive-carto-flow-vim.vessel-test]
             [hive-carto-flow-vim.watch-test]
+            [hive-carto-flow-vim.pack-test]
             [hive-carto-flow-vim.mount-test]
             [hive-carto-flow-vim.vim-integration-test]))
 
@@ -10,6 +11,7 @@
   '[hive-carto-flow-vim.paths-test
     hive-carto-flow-vim.vessel-test
     hive-carto-flow-vim.watch-test
+    hive-carto-flow-vim.pack-test
     hive-carto-flow-vim.mount-test
     hive-carto-flow-vim.vim-integration-test])
 
