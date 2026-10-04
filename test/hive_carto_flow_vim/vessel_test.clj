@@ -6,7 +6,8 @@
             [clojure.test :refer [deftest is testing]]
             [hive-carto-flow.render.text :as text]
             [hive-carto-flow-vim.vessel :as sut]
-            [hive-vessel.core :as v]))
+            [hive-vessel.core :as v]
+            [hive-carto-flow.domain.walk :as walk]))
 
 (def frame
   {:frame/index 2
@@ -33,54 +34,26 @@
 (def plain-target
   {:vessel/id :vim :vessel/dialect :vim-channel})
 
-(def stop-sample
-  {:stop/index 0
-   :stop/frame 0
-   :stop/hunk 0
-   :stop/of [1 3]
-   :stop/path "/tmp/test.clj"
-   :stop/focus 15
-   :stop/added [{:start 14 :count 2}]
-   :stop/removed [{:above 13 :lines ["  (old-code)"]}]
-   :stop/header "@@ -12,3 +14,4 @@ defn foo"
-   :stop/forms ["test-ns/foo"]})
+(deftest frame-message-carries-core-stops
+  (let [frame (assoc frame :affected/paths ["/tmp/test.clj"]
+                     :frame/diff "--- a/test.clj\n+++ b/test.clj\n@@ -12,2 +14,2 @@\n-old\n+new\n context\n")
+        stops (get (sut/frame-message frame) "stops")
+        expected (walk/stops [frame])]
+    (is (= (count expected) (count stops)))
+    (is (= (mapv :stop/path expected) (mapv #(get % "stop/path") stops)))
+    (is (= (mapv :stop/focus expected) (mapv #(get % "stop/focus") stops)))
+    (is (= (mapv #(mapv (fn [r] {"start" (:start r) "count" (:count r)}) (:stop/added %)) expected)
+           (mapv #(get % "stop/added") stops)))
+    (is (= (mapv #(mapv (fn [r] {"above" (:above r) "lines" (:lines r)}) (:stop/removed %)) expected)
+           (mapv #(get % "stop/removed") stops)))))
 
-(def stops-target
-  {:vessel/dialect :vim-channel
-   :vessel/features #{sut/diff-walk-feature}})
-
-(deftest diff-walk-stops-message-is-well-formed
-  (let [msg (sut/stops-message [stop-sample])]
-    (is (contains? msg "stops"))
-    (is (vector? (get msg "stops")))
-    (is (= 1 (count (get msg "stops"))))
-    (let [stop (first (get msg "stops"))]
-      (is (= 0 (get stop "stop/index")))
-      (is (= "/tmp/test.clj" (get stop "stop/path")))
-      (is (= 15 (get stop "stop/focus"))))))
-
-(deftest diff-walk-translator-handles-stops-op
-  (let [intent {:op :op/stops :stops [stop-sample stop-sample]}
-        ops (plan-ops intent stops-target)
-        op (first ops)]
-    (is (= :vim/call (:op op)))
-    (is (= sut/ingest-stops-fn (:fn op)))
-    (is (= 1 (count (:args op))))
-    (let [arg (first (:args op))]
-      (is (contains? arg "stops"))
-      (is (= 2 (count (get arg "stops")))))))
-
-(deftest diff-walk-feature-requires-both-functions
-  (testing "feature granted only when both ingest_stops and show_stop are defined"
-    (let [reply {"advertised" ["carto-flow/diff-walk"]
-                 "defined" [sut/ingest-stops-fn sut/show-stop-fn]}
-          features (sut/confirm-features reply)]
-      (is (contains? features sut/diff-walk-feature)))
-    (testing "feature not granted when show_stop is missing"
-      (let [reply {"advertised" ["carto-flow/diff-walk"]
-                   "defined" [sut/ingest-stops-fn]}
-            features (sut/confirm-features reply)]
-        (is (not (contains? features sut/diff-walk-feature)))))))
+(deftest diff-walk-feature-requires-show-stop
+  (is (contains? (sut/confirm-features {"advertised" ["carto-flow/timeline"]
+                                        "defined" [sut/ingest-fn sut/hello-fn sut/show-stop-fn]})
+                 sut/diff-walk-feature))
+  (is (not (contains? (sut/confirm-features {"advertised" ["carto-flow/timeline"]
+                                             "defined" [sut/ingest-fn sut/hello-fn]})
+                      sut/diff-walk-feature))))
 
 (deftest a-vim-running-the-plugin-gets-the-timeline-call
   (let [[payload :as all] (payloads timeline-target)]
@@ -157,7 +130,7 @@
 (deftest the-probe-asks-for-every-function-a-feature-entitles
   (doseq [f sut/probed-fns]
     (is (str/includes? sut/features-expr (str "'" f "'")) f))
-  (is (= #{sut/ingest-fn sut/hello-fn sut/seek-fn sut/ingest-stops-fn sut/show-stop-fn} 
+  (is (= #{sut/ingest-fn sut/hello-fn sut/seek-fn sut/show-stop-fn}
          (set sut/probed-fns))))
 
 (deftest the-timeline-translator-is-well-formed-data

@@ -116,14 +116,21 @@ These keys work in the timeline and in the `carto-flow://frame` detail:
 
 | Key | Action |
 | --- | --- |
-| `]f` / `n` | next frame (an open detail re-renders in place) |
-| `[f` / `p` | previous frame |
+| `]f` / `[f` | next / previous frame (an open detail re-renders in place) |
+| `n` / `p` | next / previous hunk Stop, crossing frames and opening its code (frames without Stops page as frames) |
 | `G` | latest frame, and follow new ones |
 | `o` | open the frame's code at its first changed line |
 | `<CR>` | (timeline) open the frame's detail and diff in a split |
 | `q` | close the window |
 | `v` / `V` | next / previous layout (see below) |
 | `=` | re-fit the panel to the screen |
+
+The code window also maps `]h` / `[h` while walking. Added lines receive
+`DiffAdd` text properties; removed lines appear as virtual `DiffDelete` text
+above their new-side anchor, or below the final line at EOF. On a Vim without
+`+textprop`, added lines use match highlights and removed lines are echoed.
+`:CartoFlowWalkStop` clears the decorations, as does `q` in the timeline.
+The walk returns focus to the timeline after showing a Stop.
 
 Core's cursor drives this one: when anything moves the core timeline cursor
 (`:carto-flow/next!`, `:carto-flow/previous!`, `:carto-flow/latest!`, from

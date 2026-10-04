@@ -198,10 +198,10 @@
                (last (ask-vim! session answer (shows "frame #1  succeeded  write-form") "C-w" "t" "Enter")))
             "<CR> on the timeline opened the latest frame's detail")
         (is (= "frame #0  apply  write-form"
-               (last (ask-vim! session answer (shows "frame #0  apply  write-form") "p")))
-            "p in the detail paged back and re-rendered in place")
+               (last (ask-vim! session answer (shows "frame #0  apply  write-form") "[" "f")))
+            "[f in the detail pages back one frame")
         (is (= "frame #1  succeeded  write-form"
-               (last (ask-vim! session answer (shows "frame #1  succeeded  write-form") "n")))
+               (last (ask-vim! session answer (shows "frame #1  succeeded  write-form") "]" "f")))
             "n in the detail paged forward")
         (finally
           (sh/sh "tmux" "kill-session" "-t" session)
