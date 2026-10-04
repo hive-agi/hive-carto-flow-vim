@@ -44,6 +44,18 @@
   [{:keys [frame payload]} _target]
   {:op :vim/call :fn ingest-fn :args [(frame-message (or frame payload))]})
 
+(def diff-walk-feature
+  "Feature granted to a Vim whose loaded script defines diff-walk functions."
+  :carto-flow/diff-walk)
+
+(def ingest-stops-fn
+  "carto_flow#ingest_stops"
+  "carto_flow#ingest_stops")
+
+(def show-stop-fn
+  "carto_flow#show_stop"
+  "carto_flow#show_stop")
+
 (def timeline-translator
   {:translator/id :hive.carto-flow.vim/frame->timeline
    :translator/op flow-vessel/op-type
@@ -52,9 +64,37 @@
    :translator/accepts flow-vessel/frame-accepts
    :translator/translate ingest-op})
 
+(defn stops-message
+  "Format a stops vector for Vim: JSON-safe keys."
+  [stops]
+  {"stops" (mapv (fn [stop]
+                   {"stop/index" (:stop/index stop)
+                    "stop/frame" (:stop/frame stop)
+                    "stop/hunk" (:stop/hunk stop)
+                    "stop/of" (:stop/of stop)
+                    "stop/path" (:stop/path stop)
+                    "stop/focus" (:stop/focus stop)
+                    "stop/added" (:stop/added stop)
+                    "stop/removed" (:stop/removed stop)
+                    "stop/header" (:stop/header stop)
+                    "stop/forms" (:stop/forms stop)})
+                 stops)})
+
+(defn ingest-stops-op
+  "Translate a stops intent into a call of the plugin's ingest_stops."
+  [{:keys [stops]} _target]
+  {:op :vim/call :fn ingest-stops-fn :args [(stops-message stops)]})
+
+(def stops-translator
+  {:translator/id :hive.carto-flow.vim/stops->diff-walk
+   :translator/op :op/stops
+   :translator/when {:vessel/dialect dialect
+                     :vessel/features #{diff-walk-feature}}
+   :translator/translate ingest-stops-op})
+
 (def translators
   "What this addon exposes under hive-vessel's `:vessel/translators` hook."
-  [timeline-translator])
+  [timeline-translator stops-translator])
 
 (defn registry
   "hive-vessel's standard registry plus core's generic frame translator plus the
@@ -85,7 +125,8 @@
    feature is granted only when every one of its functions is defined in the
    connected Vim."
   {timeline-feature {:fns [ingest-fn hello-fn]}
-   seek-feature {:fns [seek-fn] :within timeline-feature}})
+   seek-feature {:fns [seek-fn] :within timeline-feature}
+   diff-walk-feature {:fns [ingest-stops-fn show-stop-fn]}})
 
 (def probed-fns
   "Every function named in `feature-fns`, in a stable order."
