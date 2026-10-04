@@ -80,6 +80,10 @@ endif
 let s:stop_cursor = get(s:, 'stop_cursor', -1)
 let s:stop_mode = get(s:, 'stop_mode', 0)
 let s:stop_decorations = get(s:, 'stop_decorations', {})
+let s:code_windows = get(s:, 'code_windows', [])
+let s:code_page = get(s:, 'code_page', 0)
+let s:code_view = get(s:, 'code_view', 0)
+let s:sign_id = get(s:, 'sign_id', 0)
 
 " ---------------------------------------------------------------- connection
 
@@ -457,6 +461,7 @@ function! s:move(delta) abort
   if empty(s:frames)
     return
   endif
+  let l:view = s:code_view
   call s:clear_stop_decorations()
   let s:stop_mode = 0
   let l:current = s:cursor < 0 ? len(s:frames) - 1 : s:cursor
@@ -464,6 +469,9 @@ function! s:move(delta) abort
   let s:follow = s:cursor == len(s:frames) - 1
   call s:render()
   call s:refresh_detail()
+  if l:view
+    call carto_flow#code_view(s:cursor)
+  endif
 endfunction
 
 function! carto_flow#next() abort
@@ -496,30 +504,193 @@ function! carto_flow#seek(msg) abort
   let s:follow = s:cursor == len(s:frames) - 1
   call s:render()
   call s:refresh_detail()
+  if s:code_view
+    call carto_flow#code_view(s:cursor)
+  endif
 endfunction
 
 " --------------------------------------------------------- diff walk: stops
 
 " Clear decorations on the buffer they were attached to, not the current buffer.
 function! s:clear_stop_decorations() abort
-  let l:buf = get(s:stop_decorations, 'buf', -1)
-  if l:buf > 0 && bufexists(l:buf) && has('textprop')
-    for l:type in ['cartoFlowAdded', 'cartoFlowRemoved']
-      call prop_remove({'type': l:type, 'all': 1, 'bufnr': l:buf})
+  for l:key in keys(s:stop_decorations)
+    let l:buf = str2nr(l:key)
+    if bufexists(l:buf) && has('textprop')
+      for l:type in ['cartoFlowAddLine', 'cartoFlowDelText']
+        call prop_remove({'type': l:type, 'all': 1, 'bufnr': l:buf})
+      endfor
+    endif
+    if has('signs')
+      execute 'sign unplace * group=cartoflow buffer=' . l:buf
+    endif
+    for l:item in get(s:stop_decorations[l:key], 'matches', [])
+      if win_id2win(l:item[0]) > 0
+        silent! call matchdelete(l:item[1], l:item[0])
+      endif
     endfor
-  endif
-  for l:item in get(s:stop_decorations, 'matches', [])
-    silent! call matchdelete(l:item[1], l:item[0])
   endfor
   let s:stop_decorations = {}
 endfunction
 
-function! s:stop_types() abort
-  if empty(prop_type_get('cartoFlowAdded'))
-    call prop_type_add('cartoFlowAdded', {'highlight': 'DiffAdd'})
+function! carto_flow#highlights() abort
+  hi def cartoFlowAddLine ctermbg=darkgreen guibg=#243d32
+  hi def link cartoFlowAddSign DiffAdd
+  hi def link cartoFlowDelSign DiffDelete
+  hi def cartoFlowDelText ctermfg=darkgray gui=italic guifg=#888888
+  if has('signs')
+    call sign_define('cartoFlowPlus', {'text': '+', 'texthl': 'cartoFlowAddSign'})
+    call sign_define('cartoFlowMinus', {'text': '-', 'texthl': 'cartoFlowDelSign'})
+    call sign_define('cartoFlowChange', {'text': '~', 'texthl': 'cartoFlowAddSign'})
   endif
-  if empty(prop_type_get('cartoFlowRemoved'))
-    call prop_type_add('cartoFlowRemoved', {'highlight': 'DiffDelete'})
+  if has('textprop')
+    if empty(prop_type_get('cartoFlowAddLine'))
+      call prop_type_add('cartoFlowAddLine', {'highlight': 'cartoFlowAddLine', 'combine': v:true})
+    endif
+    if empty(prop_type_get('cartoFlowDelText'))
+      call prop_type_add('cartoFlowDelText', {'highlight': 'cartoFlowDelText'})
+    endif
+  endif
+endfunction
+
+function! s:groups(stops) abort
+  let l:groups = []
+  for l:stop in a:stops
+    let l:path = get(l:stop, 'stop/path', '')
+    if !filereadable(l:path)
+      continue
+    endif
+    let l:at = index(map(copy(l:groups), 'v:val.path'), l:path)
+    if l:at < 0
+      call add(l:groups, {'path': l:path, 'stops': [l:stop]})
+    else
+      call add(l:groups[l:at].stops, l:stop)
+    endif
+  endfor
+  return l:groups
+endfunction
+
+function! s:decorate(stops) abort
+  call carto_flow#highlights()
+  let l:buf = bufnr('%')
+  let s:stop_decorations[l:buf] = {'matches': []}
+  if has('signs')
+    setlocal signcolumn=yes
+  endif
+  for l:stop in a:stops
+    for l:range in get(l:stop, 'stop/added', [])
+      let l:start = get(l:range, 'start', 0)
+      let l:count = get(l:range, 'count', 0)
+      if l:start > 0 && l:count > 0
+        for l:i in range(l:start, min([line('$'), l:start + l:count - 1]))
+          if has('textprop')
+            call prop_add(l:i, 1, {'type': 'cartoFlowAddLine', 'length': max([1, strlen(getline(l:i))])})
+          else
+            call add(s:stop_decorations[l:buf].matches, [win_getid(), matchaddpos('cartoFlowAddLine', [[l:i]], 10)])
+          endif
+          if has('signs')
+            let s:sign_id += 1
+            call sign_place(s:sign_id, 'cartoflow', 'cartoFlowPlus', l:buf, {'lnum': l:i})
+          endif
+        endfor
+      endif
+    endfor
+    for l:block in get(l:stop, 'stop/removed', [])
+      let l:above = get(l:block, 'above', 0)
+      let l:lines = get(l:block, 'lines', [])
+      if l:above > 0 && !empty(l:lines)
+        if has('signs')
+          let l:changed = !empty(filter(copy(get(l:stop, 'stop/added', [])), 'get(v:val, "start", 0) == l:above'))
+          let s:sign_id += 1
+          call sign_place(s:sign_id, 'cartoflow', l:changed ? 'cartoFlowChange' : 'cartoFlowMinus', l:buf, {'lnum': min([l:above, line('$')])})
+        endif
+        if has('textprop')
+          let l:at = min([l:above, line('$')])
+          let l:align = l:above > line('$') ? 'below' : 'above'
+          for l:text in l:lines
+            call prop_add(l:at, 0, {'type': 'cartoFlowDelText', 'text': '- ' . l:text, 'text_align': l:align})
+          endfor
+        else
+          echomsg 'carto-flow: removed above ' . l:above . ': ' . join(l:lines, ' | ')
+        endif
+      endif
+    endfor
+  endfor
+endfunction
+
+function! s:owned_window(n) abort
+  let s:code_windows = filter(s:code_windows, 'win_id2win(v:val) > 0')
+  if a:n < len(s:code_windows)
+    call win_gotoid(s:code_windows[a:n])
+  else
+    if !empty(s:code_windows)
+      call win_gotoid(s:code_windows[-1])
+      silent belowright split
+    else
+      silent botright vertical new
+    endif
+    call add(s:code_windows, win_getid())
+  endif
+endfunction
+
+function! s:show_groups(groups) abort
+  let l:back = win_getid()
+  call s:clear_stop_decorations()
+  let l:max = max([1, get(g:, 'carto_flow_max_files', 3)])
+  let l:visible = a:groups[s:code_page * l:max : (s:code_page + 1) * l:max - 1]
+  for l:i in range(len(l:visible))
+    call s:owned_window(l:i)
+    execute 'silent keepjumps hide edit ' . fnameescape(l:visible[l:i].path)
+    call s:decorate(l:visible[l:i].stops)
+    call cursor(get(l:visible[l:i].stops[0], 'stop/focus', 1), 1)
+    normal! zz
+    nnoremap <buffer> <silent> ]h :<C-u>call carto_flow#next_stop()<CR>
+    nnoremap <buffer> <silent> [h :<C-u>call carto_flow#previous_stop()<CR>
+  endfor
+  while len(s:code_windows) > len(l:visible)
+    let l:win = remove(s:code_windows, -1)
+    if win_id2win(l:win) > 0
+      call win_execute(l:win, 'close')
+    endif
+  endwhile
+  let l:timeline = bufwinid(bufnr(s:timeline_name))
+  if l:timeline != -1
+    call win_gotoid(l:timeline)
+  elseif win_id2win(l:back) > 0
+    call win_gotoid(l:back)
+  endif
+  let l:more = len(a:groups) - (s:code_page + 1) * l:max
+  if l:more > 0
+    echomsg printf('carto-flow: +%d more files (Tab for next page)', l:more)
+  endif
+endfunction
+
+function! carto_flow#code_view(...) abort
+  let l:i = a:0 ? a:1 : s:cursor
+  if l:i < 0 || l:i >= len(s:frames)
+    return
+  endif
+  let s:cursor = l:i
+  let s:code_page = 0
+  let s:code_view = 1
+  call s:render()
+  call s:show_groups(s:groups(get(s:frames[l:i], 'stops', [])))
+endfunction
+
+function! carto_flow#code_view_at_line(lnum) abort
+  let l:i = a:lnum - s:header_size - 1
+  call carto_flow#code_view(l:i >= 0 && l:i < len(s:frames) ? l:i : s:cursor)
+endfunction
+
+function! carto_flow#next_file_page() abort
+  if s:cursor < 0 || !s:code_view
+    return
+  endif
+  let l:groups = s:groups(get(s:frames[s:cursor], 'stops', []))
+  let l:max = max([1, get(g:, 'carto_flow_max_files', 3)])
+  let l:pages = (len(l:groups) + l:max - 1) / l:max
+  if l:pages > 0
+    let s:code_page = (s:code_page + 1) % l:pages
+    call s:show_groups(l:groups)
   endif
 endfunction
 
@@ -531,6 +702,17 @@ function! carto_flow#show_stop(stop) abort
   
   let l:back = win_getid()
   call s:clear_stop_decorations()
+  if s:code_view
+    let l:groups = s:groups(get(s:frames[s:cursor], 'stops', []))
+    let l:at = index(map(copy(l:groups), 'v:val.path'), get(a:stop, 'stop/path', ''))
+    if l:at >= 0
+      let l:max = max([1, get(g:, 'carto_flow_max_files', 3)])
+      let s:code_page = l:at / l:max
+      call s:show_groups(l:groups)
+      call win_execute(s:code_windows[l:at % l:max], 'call cursor(' . get(a:stop, 'stop/focus', 1) . ', 1) | normal! zz')
+    endif
+    return
+  endif
 
   let l:path = get(a:stop, 'stop/path', '')
   let l:focus = get(a:stop, 'stop/focus', 1)
@@ -562,49 +744,7 @@ function! carto_flow#show_stop(stop) abort
   " Keep walking available in the code window as well as in the panel.
   nnoremap <buffer> <silent> ]h :<C-u>call carto_flow#next_stop()<CR>
   nnoremap <buffer> <silent> [h :<C-u>call carto_flow#previous_stop()<CR>
-  let s:stop_decorations = {'buf': bufnr('%'), 'matches': []}
-  if has('textprop')
-    call s:stop_types()
-  endif
-  
-  " Highlight added ranges
-  for l:range in l:added
-    if type(l:range) == v:t_dict
-      let l:start = get(l:range, 'start', 0)
-      let l:count = get(l:range, 'count', 0)
-      if l:start > 0 && l:count > 0
-        for l:i in range(l:start, l:start + l:count - 1)
-          if l:i <= line('$')
-            if has('textprop')
-              call prop_add(l:i, 1, {'type': 'cartoFlowAdded', 'length': max([1, strlen(getline(l:i))])})
-            else
-              call add(s:stop_decorations.matches, [win_getid(), matchaddpos('DiffAdd', [[l:i]], 10)])
-            endif
-          endif
-        endfor
-      endif
-    endif
-  endfor
-  
-  " Show removed lines above their insertion point
-  for l:removed_block in l:removed
-    if type(l:removed_block) == v:t_dict
-      let l:above = get(l:removed_block, 'above', 0)
-      let l:lines = get(l:removed_block, 'lines', [])
-      if l:above > 0 && !empty(l:lines)
-        if has('textprop')
-          let l:at = min([l:above, line('$')])
-          let l:align = l:above > line('$') ? 'below' : 'above'
-          for l:text in l:lines
-            call prop_add(l:at, 0, {'type': 'cartoFlowRemoved',
-                  \ 'text': '- ' . l:text, 'text_align': l:align})
-          endfor
-        else
-          echomsg 'carto-flow: removed above ' . l:above . ': ' . join(l:lines, ' | ')
-        endif
-      endif
-    endif
-  endfor
+  call s:decorate([a:stop])
   
   " Show stop info in status/command line
   let l:timeline = bufwinid(bufnr(s:timeline_name))
@@ -657,6 +797,7 @@ endfunction
 function! carto_flow#exit_stop_mode() abort
   call s:clear_stop_decorations()
   let s:stop_mode = 0
+  let s:code_view = 0
   let s:stop_cursor = -1
   echomsg 'carto-flow: exited stop mode'
 endfunction
@@ -904,7 +1045,9 @@ function! s:setup_timeline() abort
   nnoremap <buffer> <silent> n :<C-u>call carto_flow#next_stop()<CR>
   nnoremap <buffer> <silent> p :<C-u>call carto_flow#previous_stop()<CR>
   nnoremap <buffer> <silent> G :<C-u>call carto_flow#latest()<CR>
-  nnoremap <buffer> <silent> <CR> :<C-u>call carto_flow#detail_at_line(line('.'))<CR>
+  nnoremap <buffer> <silent> <CR> :<C-u>call carto_flow#code_view_at_line(line('.'))<CR>
+  nnoremap <buffer> <silent> d :<C-u>call carto_flow#detail_at_line(line('.'))<CR>
+  nnoremap <buffer> <silent> <Tab> :<C-u>call carto_flow#next_file_page()<CR>
   nnoremap <buffer> <silent> o :<C-u>call carto_flow#open_code_at_line(line('.'))<CR>
   nnoremap <buffer> <silent> q :<C-u>call carto_flow#exit_stop_mode()<Bar>call carto_flow#close()<CR>
   nnoremap <buffer> <silent> v :<C-u>call carto_flow#layout(v:count1)<CR>
@@ -921,6 +1064,8 @@ function! s:setup_detail() abort
   nnoremap <buffer> <silent> n :<C-u>call carto_flow#next_stop()<CR>
   nnoremap <buffer> <silent> p :<C-u>call carto_flow#previous_stop()<CR>
   nnoremap <buffer> <silent> G :<C-u>call carto_flow#latest()<CR>
+  nnoremap <buffer> <silent> <CR> :<C-u>call carto_flow#code_view()<CR>
+  nnoremap <buffer> <silent> d :<C-u>call carto_flow#detail()<CR>
   nnoremap <buffer> <silent> o :<C-u>call carto_flow#open_code()<CR>
   nnoremap <buffer> <silent> q :<C-u>close<CR>
   nnoremap <buffer> <silent> v :<C-u>call carto_flow#layout(v:count1)<CR>
@@ -1100,6 +1245,11 @@ endfor
 unlet! s:info
 let s:timer = -1
 call s:schedule_reconnect()
+call carto_flow#highlights()
+augroup carto_flow_colors
+  autocmd!
+  autocmd ColorScheme * call carto_flow#highlights()
+augroup END
 call s:render()
 
 let &cpo = s:save_cpo

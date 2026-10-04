@@ -120,15 +120,24 @@ These keys work in the timeline and in the `carto-flow://frame` detail:
 | `n` / `p` | next / previous hunk Stop, crossing frames and opening its code (frames without Stops page as frames) |
 | `G` | latest frame, and follow new ones |
 | `o` | open the frame's code at its first changed line |
-| `<CR>` | (timeline) open the frame's detail and diff in a split |
+| `<CR>` | open the frame's changed files in a right-hand code view (up to 3 stacked windows) |
+| `<Tab>` | page through further changed files in the timeline |
+| `d` | open the frame's detail and diff in a split |
 | `q` | close the window |
 | `v` / `V` | next / previous layout (see below) |
 | `=` | re-fit the panel to the screen |
 
-The code window also maps `]h` / `[h` while walking. Added lines receive
-`DiffAdd` text properties; removed lines appear as virtual `DiffDelete` text
-above their new-side anchor, or below the final line at EOF. On a Vim without
-`+textprop`, added lines use match highlights and removed lines are echoed.
+The code window also maps `]h` / `[h` while walking. `<CR>` groups Stops by
+file in first-appearance order, opening up to `g:carto_flow_max_files` (default
+3) dedicated right-hand windows, stacked vertically. `<Tab>` cycles pages if
+there are more files; excess owned windows close when fewer are needed. Focus
+returns to the timeline. Added lines get a background-only `cartoFlowAddLine`
+text property with `combine` (preserving syntax foreground) and a `+` sign.
+Removed lines show a `-` sign and dim, italic virtual text above their anchor
+(or below the final line at EOF); a deletion adjacent to additions gets `~`.
+The `cartoFlow*` highlights use `hi def` and can be overridden by a colorscheme.
+On a Vim without `+textprop` or `+signs`, added lines use match highlights and
+removed lines are echoed.
 `:CartoFlowWalkStop` clears the decorations, as does `q` in the timeline.
 The walk returns focus to the timeline after showing a Stop.
 

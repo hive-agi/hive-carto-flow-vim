@@ -193,10 +193,9 @@
           (is (= "src/a.clj" (:focus state)) "focus stayed in the code window")
           (is (= 5 (:code-line state)) "the live frame moved the code to the diff's first changed line"))
         (is (= "frame #1  succeeded  write-form"
-               ;; C-w t: the timeline is the top-left window in every layout
-               ;; (docked left by default, on top in classic).
-               (last (ask-vim! session answer (shows "frame #1  succeeded  write-form") "C-w" "t" "Enter")))
-            "<CR> on the timeline opened the latest frame's detail")
+               ;; C-w t: the timeline is the top-left window in every layout.
+               (last (ask-vim! session answer (shows "frame #1  succeeded  write-form") "C-w" "t" "d")))
+            "d on the timeline opened the latest frame's detail")
         (is (= "frame #0  apply  write-form"
                (last (ask-vim! session answer (shows "frame #0  apply  write-form") "[" "f")))
             "[f in the detail pages back one frame")

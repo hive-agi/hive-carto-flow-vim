@@ -266,17 +266,79 @@
           (is (= (mapv str [first-file first-file second-file second-file])
                  (mapv :path (take 4 snapshots))))
           (is (= [2 4 2 2] (mapv :line (take 4 snapshots))))
-          (is (some #(= "cartoFlowAdded" (:type %)) (props 0)))
-          (is (some #(= "cartoFlowAdded" (:type %)) (props 1)))
-          (is (some #(and (= "cartoFlowRemoved" (:type %))
+          (is (some #(= "cartoFlowAddLine" (:type %)) (props 0)))
+          (is (some #(= "cartoFlowAddLine" (:type %)) (props 1)))
+          (is (some #(and (= "cartoFlowDelText" (:type %))
                           (= "- old two" (:text %))
                           (= "above" (:text_align %))) (props 0)))
-          (is (some #(and (= "cartoFlowRemoved" (:type %))
+          (is (some #(and (= "cartoFlowDelText" (:type %))
                           (= "- old tail" (:text %))
                           (= "below" (:text_align %))) (props 2)))
           (is (= [0 1] (mapv :frame (subvec snapshots 4 6))) "detail p and code ]h walk back and forward")
           (is (every? :focus (subvec snapshots 4 6)) "both return to timeline")
           (is (= {:mode 0 :props []} (last snapshots))))
+        (finally (t/delete-tree! dir))))))
+
+(deftest headless-vim-opens-paged-multifile-code-view
+  (if-not (and (vim-with-channels?) (str/includes? (:out (sh/sh vim-path "--version")) "+textprop"))
+    (println "SKIP code view: needs +channel +textprop")
+    (let [dir (t/temp-dir)
+          paths (mapv #(io/file dir (str "file" % ".clj")) (range 4))
+          stop (fn [frame file focus added removed]
+                 {"stop/frame" frame "stop/path" (str file) "stop/focus" focus
+                  "stop/of" [1 1] "stop/added" added "stop/removed" removed
+                  "stop/forms" ["example/f"]})
+          frame (fn [index stops] {"index" index "line" (str "frame " index)
+                                    "detail" [(str "frame " index)] "stops" stops})]
+      (try
+        (doseq [file paths] (spit file "one\ntwo\nthree\nfour\nfive\n"))
+        (let [first-stops [(stop 0 (paths 0) 2 [{"start" 2 "count" 1}]
+                                 [{"above" 4 "lines" ["removed"]}])
+                           (stop 0 (paths 0) 4 [{"start" 4 "count" 1}] [])
+                           (stop 0 (paths 1) 3 [{"start" 3 "count" 1}] [])]
+              four-stops (mapv (fn [file] (stop 1 file 2 [{"start" 2 "count" 1}] [])) paths)
+              result (run-plugin-script
+                      dir "code-view"
+                      ["let g:carto_flow_follow_edits = 0"
+                       "runtime plugin/carto_flow.vim"
+                       "call carto_flow#hello({'frames': 2})"
+                       (str "call carto_flow#ingest(" (json/write-str (frame 0 first-stops)) ")")
+                       (str "call carto_flow#ingest(" (json/write-str (frame 1 four-stops)) ")")
+                       "CartoFlow"
+                       "let s:timeline = win_getid()"
+                       (str "let s:first = " (vim-string (str (paths 0))))
+                       "let s:out = []"
+                       "function! s:snapshot() abort"
+                       "  let l:wins = filter(range(1, winnr('$')), '!empty(bufname(winbufnr(v:val))) && bufname(winbufnr(v:val)) !~# \"^carto-flow://\"')"
+                       "  let l:rows = map(l:wins, '{\"path\": bufname(winbufnr(v:val)), \"line\": line(\".\", win_getid(v:val)), \"signs\": sign_getplaced(winbufnr(v:val), {\"group\": \"cartoflow\"})[0].signs}')"
+                       "  call add(s:out, json_encode({'focus': win_getid() == s:timeline, 'windows': l:rows, 'props': prop_list(2, {'bufnr': bufnr(s:first)}) + prop_list(4, {'bufnr': bufnr(s:first)}), 'combine': prop_type_get('cartoFlowAddLine').combine}))"
+                       "endfunction"
+                       "call carto_flow#code_view(0)"
+                       "call s:snapshot()"
+                       "call carto_flow#code_view(1)"
+                       "call s:snapshot()"
+                       "call carto_flow#next_file_page()"
+                       "call s:snapshot()"
+                       "call carto_flow#code_view(0)"
+                       "call s:snapshot()"
+                       "call carto_flow#code_view(1)"
+                       "call carto_flow#code_view(0)"
+                       "call carto_flow#code_view(1)"
+                       "call carto_flow#code_view(0)"
+                       "call s:snapshot()"])
+              rows (mapv #(json/read-str % :key-fn keyword) result)]
+          (is (= 5 (count rows)) (pr-str result))
+          (is (every? :focus rows) "timeline keeps focus")
+          (is (= (mapv str (take 2 paths)) (mapv :path (:windows (rows 0)))))
+          (is (= [2 3] (mapv :line (:windows (rows 0)))))
+          (is (= 3 (count (:windows (rows 1)))) "three files at once")
+          (is (= [(str (paths 3))] (mapv :path (:windows (rows 2)))) "Tab pages to fourth")
+          (is (= 2 (count (:windows (rows 3)))) "next frame closes extra windows")
+          (is (some #(= "cartoFlowAddLine" (:type %)) (:props (rows 0))))
+          (is (some #(and (= "cartoFlowDelText" (:type %)) (= "- removed" (:text %))) (:props (rows 0))))
+          (is (= 1 (:combine (rows 0))))
+          (is (some #(= "cartoFlowPlus" (:name %)) (-> rows first :windows first :signs)))
+          (is (some #(= "cartoFlowMinus" (:name %)) (-> rows first :windows first :signs))))
         (finally (t/delete-tree! dir))))))
 
 (deftest the-default-keys-map-the-named-actions-and-never-take-a-key-that-is-taken
