@@ -312,20 +312,20 @@
                        "function! s:snapshot() abort"
                        "  let l:wins = filter(range(1, winnr('$')), '!empty(bufname(winbufnr(v:val))) && bufname(winbufnr(v:val)) !~# \"^carto-flow://\"')"
                        "  let l:rows = map(l:wins, '{\"path\": bufname(winbufnr(v:val)), \"line\": line(\".\", win_getid(v:val)), \"signs\": sign_getplaced(winbufnr(v:val), {\"group\": \"cartoflow\"})[0].signs}')"
-                       "  call add(s:out, json_encode({'focus': win_getid() == s:timeline, 'windows': l:rows, 'props': prop_list(2, {'bufnr': bufnr(s:first)}) + prop_list(4, {'bufnr': bufnr(s:first)}), 'combine': prop_type_get('cartoFlowAddLine').combine}))"
+                       "  call add(s:out, json_encode({'focus': win_getid() == s:timeline, 'windows': l:rows, 'props': prop_list(2, {'bufnr': bufnr(s:first)}) + prop_list(4, {'bufnr': bufnr(s:first)}), 'combine': prop_type_get('cartoFlowAddLine').combine, 'messages': execute('messages')}))"
                        "endfunction"
                        "call cursor(4, 1)"
                        "execute \"normal \\<CR>\""
                        "call s:snapshot()"
                        "call carto_flow#code_view(1)"
                        "call s:snapshot()"
-                       "call carto_flow#next_file_page()"
+                       "call feedkeys(\"\\<Tab>\", 'xt')"
                        "call s:snapshot()"
                        "call carto_flow#code_view(0)"
                        "call s:snapshot()"
                        "call carto_flow#code_view(1)"
-                       "call carto_flow#code_view(0)"
-                       "call carto_flow#code_view(2)"
+                       "call cursor(6, 1)"
+                       "execute \"normal \\<CR>\""
                        "call s:snapshot()"
                        "call carto_flow#code_view(0)"
                        "call s:snapshot()"])
@@ -335,6 +335,7 @@
           (is (= (mapv str (take 2 paths)) (mapv :path (:windows (rows 0)))))
           (is (= [2 3] (mapv :line (:windows (rows 0)))))
           (is (= 3 (count (:windows (rows 1)))) "three files at once")
+          (is (str/includes? (:messages (rows 1)) "+1 more files (Tab for next page)"))
           (is (= [(str (paths 3))] (mapv :path (:windows (rows 2)))) "Tab pages to fourth")
           (is (= 2 (count (:windows (rows 3)))) "next frame closes extra windows")
           (is (some #(= "cartoFlowAddLine" (:type %)) (:props (rows 0))))

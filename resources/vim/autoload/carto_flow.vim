@@ -571,8 +571,8 @@ endfunction
 function! s:groups(stops) abort
   let l:groups = []
   for l:stop in a:stops
-    let l:path = get(l:stop, 'stop/path', '')
-    if !filereadable(l:path)
+    let l:path = s:resolve_path(get(l:stop, 'stop/path', ''))
+    if empty(l:path)
       continue
     endif
     let l:at = index(map(copy(l:groups), 'v:val.path'), l:path)
@@ -597,6 +597,9 @@ function! s:decorate(stops) abort
       let l:start = get(l:range, 'start', 0)
       let l:count = get(l:range, 'count', 0)
       if l:start > 0 && l:count > 0
+        if l:start > line('$')
+          continue
+        endif
         for l:i in range(l:start, min([line('$'), l:start + l:count - 1]))
           if has('textprop')
             call prop_add(l:i, 1, {'type': 'cartoFlowAddLine', 'length': max([1, strlen(getline(l:i))])})
@@ -653,6 +656,9 @@ function! s:show_groups(groups) abort
   call s:clear_stop_decorations()
   let l:max = max([1, get(g:, 'carto_flow_max_files', 3)])
   let l:visible = a:groups[s:code_page * l:max : (s:code_page + 1) * l:max - 1]
+  if empty(l:visible)
+    echomsg 'carto-flow: no readable stop files for this frame'
+  endif
   for l:i in range(len(l:visible))
     call s:owned_window(l:i)
     execute 'silent keepjumps hide edit ' . fnameescape(l:visible[l:i].path)
@@ -720,7 +726,7 @@ function! carto_flow#show_stop(stop) abort
   call s:clear_stop_decorations()
   if s:code_view
     let l:groups = s:groups(get(s:frames[s:cursor], 'stops', []))
-    let l:at = index(map(copy(l:groups), 'v:val.path'), get(a:stop, 'stop/path', ''))
+    let l:at = index(map(copy(l:groups), 'v:val.path'), s:resolve_path(get(a:stop, 'stop/path', '')))
     if l:at >= 0
       let l:max = max([1, get(g:, 'carto_flow_max_files', 3)])
       let s:code_page = l:at / l:max
@@ -730,7 +736,7 @@ function! carto_flow#show_stop(stop) abort
     return
   endif
 
-  let l:path = get(a:stop, 'stop/path', '')
+  let l:path = s:resolve_path(get(a:stop, 'stop/path', ''))
   let l:focus = get(a:stop, 'stop/focus', 1)
   let l:forms = get(a:stop, 'stop/forms', [])
   let l:of = get(a:stop, 'stop/of', [0, 0])
