@@ -238,7 +238,7 @@
                         "let s:timeline = win_getid()"
                         "let s:out = []"
                         "function! s:snapshot() abort"
-                        "  let l:code = filter(range(1, winnr('$')), 'bufname(winbufnr(v:val)) !~# \"^carto-flow://\"')[0]"
+                        "  let l:code = filter(range(1, winnr('$')), '!empty(bufname(winbufnr(v:val))) && bufname(winbufnr(v:val)) !~# \"^carto-flow://\"')[0]"
                         "  let l:buf = winbufnr(l:code)"
                         "  call add(s:out, json_encode({'frame': carto_flow#status().cursor, 'focus': win_getid() == s:timeline, 'path': bufname(l:buf), 'line': line('.', win_getid(l:code)), 'props': prop_list(2, {'bufnr': l:buf}) + prop_list(3, {'bufnr': l:buf}) + prop_list(4, {'bufnr': l:buf})}))"
                         "endfunction"

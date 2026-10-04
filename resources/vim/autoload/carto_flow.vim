@@ -515,6 +515,9 @@ endfunction
 function! s:clear_stop_decorations() abort
   for l:key in keys(s:stop_decorations)
     let l:buf = str2nr(l:key)
+    if l:buf <= 0
+      continue
+    endif
     if bufexists(l:buf) && has('textprop')
       for l:type in ['cartoFlowAddLine', 'cartoFlowDelText']
         call prop_remove({'type': l:type, 'all': 1, 'bufnr': l:buf})
@@ -729,8 +732,6 @@ function! carto_flow#show_stop(stop) abort
 
   let l:path = get(a:stop, 'stop/path', '')
   let l:focus = get(a:stop, 'stop/focus', 1)
-  let l:added = get(a:stop, 'stop/added', [])
-  let l:removed = get(a:stop, 'stop/removed', [])
   let l:forms = get(a:stop, 'stop/forms', [])
   let l:of = get(a:stop, 'stop/of', [0, 0])
   
@@ -742,12 +743,7 @@ function! carto_flow#show_stop(stop) abort
   endif
   
   " Open the file in a code window
-  let l:code_win = s:code_window()
-  if l:code_win
-    call win_gotoid(l:code_win)
-  else
-    execute 'silent ' . get(g:, 'carto_flow_code_position', 'botright') . ' new'
-  endif
+  call s:owned_window(0)
   execute 'silent keepjumps hide edit ' . fnameescape(l:path)
   
   " Center on focus line
