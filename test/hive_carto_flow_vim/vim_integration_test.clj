@@ -304,7 +304,7 @@
                        "call carto_flow#hello({'frames': 3})"
                        (str "call carto_flow#ingest(" (json/write-str (frame 0 first-stops)) ")")
                        (str "call carto_flow#ingest(" (json/write-str (frame 1 four-stops)) ")")
-                       (str "call carto_flow#ingest(" (json/write-str (frame 2 [(stop 2 (paths 2) 5 [] [])])) ")")
+                       (str "call carto_flow#ingest(" (json/write-str (frame 2 [(stop 2 (paths 2) 5 [{"start" 5 "count" 1}] [{"above" 5 "lines" ["old five"]}])])) ")")
                        "CartoFlow"
                        "let s:timeline = win_getid()"
                        (str "let s:first = " (vim-string (str (paths 0))))
@@ -340,6 +340,7 @@
           (is (= 2 (count (:windows (rows 3)))) "next frame closes extra windows")
           (is (some #(= "cartoFlowAddLine" (:type %)) (:props (rows 0))))
           (is (= [(str (paths 2))] (mapv :path (:windows (rows 4)))) "a one-file frame closes extras")
+          (is (some #(= "cartoFlowChange" (:name %)) (-> rows (nth 4) :windows first :signs)) "replacement shows ~")
           (is (= [5] (mapv :line (:windows (rows 4)))))
           (is (some #(and (= "cartoFlowDelText" (:type %)) (= "- removed" (:text %))) (:props (rows 0))))
           (is (= 1 (:combine (rows 0))))
