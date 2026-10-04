@@ -301,9 +301,10 @@
                       dir "code-view"
                       ["let g:carto_flow_follow_edits = 0"
                        "runtime plugin/carto_flow.vim"
-                       "call carto_flow#hello({'frames': 2})"
+                       "call carto_flow#hello({'frames': 3})"
                        (str "call carto_flow#ingest(" (json/write-str (frame 0 first-stops)) ")")
                        (str "call carto_flow#ingest(" (json/write-str (frame 1 four-stops)) ")")
+                       (str "call carto_flow#ingest(" (json/write-str (frame 2 [(stop 2 (paths 2) 5 [] [])])) ")")
                        "CartoFlow"
                        "let s:timeline = win_getid()"
                        (str "let s:first = " (vim-string (str (paths 0))))
@@ -313,7 +314,8 @@
                        "  let l:rows = map(l:wins, '{\"path\": bufname(winbufnr(v:val)), \"line\": line(\".\", win_getid(v:val)), \"signs\": sign_getplaced(winbufnr(v:val), {\"group\": \"cartoflow\"})[0].signs}')"
                        "  call add(s:out, json_encode({'focus': win_getid() == s:timeline, 'windows': l:rows, 'props': prop_list(2, {'bufnr': bufnr(s:first)}) + prop_list(4, {'bufnr': bufnr(s:first)}), 'combine': prop_type_get('cartoFlowAddLine').combine}))"
                        "endfunction"
-                       "call carto_flow#code_view(0)"
+                       "call cursor(4, 1)"
+                       "execute \"normal \\<CR>\""
                        "call s:snapshot()"
                        "call carto_flow#code_view(1)"
                        "call s:snapshot()"
@@ -323,11 +325,12 @@
                        "call s:snapshot()"
                        "call carto_flow#code_view(1)"
                        "call carto_flow#code_view(0)"
-                       "call carto_flow#code_view(1)"
+                       "call carto_flow#code_view(2)"
+                       "call s:snapshot()"
                        "call carto_flow#code_view(0)"
                        "call s:snapshot()"])
               rows (mapv #(json/read-str % :key-fn keyword) result)]
-          (is (= 5 (count rows)) (pr-str result))
+          (is (= 6 (count rows)) (pr-str result))
           (is (every? :focus rows) "timeline keeps focus")
           (is (= (mapv str (take 2 paths)) (mapv :path (:windows (rows 0)))))
           (is (= [2 3] (mapv :line (:windows (rows 0)))))
@@ -335,6 +338,8 @@
           (is (= [(str (paths 3))] (mapv :path (:windows (rows 2)))) "Tab pages to fourth")
           (is (= 2 (count (:windows (rows 3)))) "next frame closes extra windows")
           (is (some #(= "cartoFlowAddLine" (:type %)) (:props (rows 0))))
+          (is (= [(str (paths 2))] (mapv :path (:windows (rows 4)))) "a one-file frame closes extras")
+          (is (= [5] (mapv :line (:windows (rows 4)))))
           (is (some #(and (= "cartoFlowDelText" (:type %)) (= "- removed" (:text %))) (:props (rows 0))))
           (is (= 1 (:combine (rows 0))))
           (is (some #(= "cartoFlowPlus" (:name %)) (-> rows first :windows first :signs)))

@@ -533,10 +533,23 @@ function! s:clear_stop_decorations() abort
 endfunction
 
 function! carto_flow#highlights() abort
-  hi def cartoFlowAddLine ctermbg=darkgreen guibg=#243d32
+  " Derive only the background of additions; never override syntax foreground.
+  let l:add = synIDtrans(hlID('DiffAdd'))
+  let l:gui = synIDattr(l:add, 'bg#')
+  let l:cterm = synIDattr(l:add, 'bg', 'cterm')
+  let l:bg = (l:gui =~# '^#[0-9a-fA-F]\{6}$' ? ' guibg=' . l:gui : '')
+        \ . (l:cterm =~# '^\d\+$' ? ' ctermbg=' . l:cterm : '')
+  if empty(l:bg)
+    let l:bg = ' guibg=#243d32 ctermbg=darkgreen'
+  endif
+  execute 'hi def cartoFlowAddLine' . l:bg
   hi def link cartoFlowAddSign DiffAdd
   hi def link cartoFlowDelSign DiffDelete
-  hi def cartoFlowDelText ctermfg=darkgray gui=italic guifg=#888888
+  let l:del = synIDtrans(hlID('DiffDelete'))
+  let l:fg = synIDattr(l:del, 'fg#')
+  let l:fg = l:fg =~# '^#[0-9a-fA-F]\{6}$' ? l:fg : synIDattr(synIDtrans(hlID('Comment')), 'fg#')
+  execute 'hi def cartoFlowDelText gui=italic cterm=italic'
+        \ . (l:fg =~# '^#[0-9a-fA-F]\{6}$' ? ' guifg=' . l:fg : ' guifg=#888888')
   if has('signs')
     call sign_define('cartoFlowPlus', {'text': '+', 'texthl': 'cartoFlowAddSign'})
     call sign_define('cartoFlowMinus', {'text': '-', 'texthl': 'cartoFlowDelSign'})
