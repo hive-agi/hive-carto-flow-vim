@@ -58,11 +58,15 @@
         (let [loader (slurp (io/file installed "plugin/zz_hive_runtime.vim"))
               port-file ((:carto-flow.vim/port-file (addon/hooks vim-ext)))]
           (is (str/includes? loader (str "let g:carto_flow_port_file = '" port-file "'")))
-          (is (str/includes? loader "let g:carto_flow_auto_open = 1"))
           (is (str/includes? loader "CartoFlowConnect"))
           (is (= ((:carto-flow.vim/port (addon/hooks vim-ext)))
                  (parse-long (str/trim (slurp port-file))))
               "the bound file names the executor's port")))
+      (testing "the loader opens no window by itself"
+        (let [loader (slurp (io/file installed "plugin/zz_hive_runtime.vim"))]
+          (is (not (str/includes? loader "carto_flow_auto_open")))
+          (is (str/includes? loader "let g:carto_flow_follow_edits = get(g:, 'carto_flow_follow_edits', 0)")
+              "follow_edits is off unless the vimrc set it")))
       (testing "teardown removes the runtime"
         (mount/teardown! host (:order report) {:deprovision (:deprovision provisioner)})
         (is (not (.exists installed))))
@@ -160,7 +164,7 @@
          (str "env HOME='" home "' TERM=xterm vim -N -u NORC -i NONE"
               " --cmd 'set packpath^=" home "/.vim' " file)))
 
-(deftest a-vim-started-after-injection-connects-follows-and-pages-by-itself
+(deftest a-vim-started-after-injection-connects-quietly-and-pages-on-demand
   (if-not (vim-in-tmux?)
     (println "SKIP provision vim test: needs vim +channel +timers +packages and tmux")
     (let [dir (t/temp-dir)
@@ -186,16 +190,17 @@
                               :diff "--- a/src/a.clj\n+++ b/src/a.clj\n@@ -3,1 +4,2 @@\n (defn g [])\n+(defn h [])\n"})))
         (let [state (vim-state! session answer 2)]
           (is (= 2 (:frames state)) (pr-str state))
-          (is (true? (:timeline-window? state))
-              (str "auto-open showed the timeline"
-                   (when-not (:timeline-window? state)
+          (is (false? (:timeline-window? state))
+              (str "live frames opened no timeline window"
+                   (when (:timeline-window? state)
                      (str "\nVim says:\n" (vim-diagnostics! session answer)))))
           (is (= "src/a.clj" (:focus state)) "focus stayed in the code window")
-          (is (= 5 (:code-line state)) "the live frame moved the code to the diff's first changed line"))
+          (is (= 1 (:code-line state)) "live frames did not move the cursor"))
         (is (= "frame #1  succeeded  write-form"
                ;; C-w t: the timeline is the top-left window in every layout.
-               (last (ask-vim! session answer (shows "frame #1  succeeded  write-form") "C-w" "t" "d")))
-            "d on the timeline opened the latest frame's detail")
+               (last (ask-vim! session answer (shows "frame #1  succeeded  write-form")
+                               ":CartoFlow" "Enter" "C-w" "t" "d")))
+            ":CartoFlow showed the timeline, and d opened the latest frame's detail")
         (is (= "frame #0  apply  write-form"
                (last (ask-vim! session answer (shows "frame #0  apply  write-form") "[" "f")))
             "[f in the detail pages back one frame")
