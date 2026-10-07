@@ -9,7 +9,8 @@
  {org.clojure/clojure {:mvn/version "1.12.6"}
   org.clojure/data.json {:mvn/version "2.5.2"}
 
-  io.github.hive-agi/hive-carto-flow {:mvn/version "0.1.19"}
+  ;; 0.1.23 carries the diff walk (domain.walk Stops) frame-message ships.
+  io.github.hive-agi/hive-carto-flow {:mvn/version "0.1.23"}
   ;; 0.1.11 carries the keyed panel repaint. The Vim runtime this addon
   ;; extracts IS this artifact's, so the pin decides what a user's Vim runs.
   io.github.hive-agi/hive-vessel {:mvn/version "0.1.12"}

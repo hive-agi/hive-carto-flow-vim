@@ -74,7 +74,7 @@
               (is (true? (:listening? details)))
               (is (true? (:vim-attached? details)))
               (is (true? (:timeline-feature? details)))
-              (is (= #{:carto-flow/timeline :carto-flow/seek} (:features details)))))
+              (is (= #{:carto-flow/timeline :carto-flow/seek :carto-flow/diff-walk} (:features details)))))
           (testing "live frames follow"
             (t/mutate! :carto.mutation/succeeded ["src/a.clj" "src/b.clj"])
             (is (t/eventually #(= 2 (count (t/ingest-messages vim)))))

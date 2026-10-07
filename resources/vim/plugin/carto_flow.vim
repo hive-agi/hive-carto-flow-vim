@@ -55,6 +55,7 @@ command! -nargs=? CartoFlowConnect call carto_flow#connect(<f-args>)
 command! -nargs=0 CartoFlowDisconnect call carto_flow#disconnect()
 command! -nargs=0 CartoFlowClear call carto_flow#clear()
 command! -nargs=0 CartoFlowCode call carto_flow#open_code()
+command! -nargs=0 CartoFlowWalkStop call carto_flow#exit_stop_mode()
 command! -nargs=? -complete=customlist,carto_flow#follow_complete CartoFlowFollow
       \ call carto_flow#follow_edits(<f-args>)
 

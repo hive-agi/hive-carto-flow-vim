@@ -15,5 +15,5 @@
                   :runtime/source {:source/hook :carto-flow.vim/plugin-dir}
                   :runtime/bindings {:port-file {:binding/hook :carto-flow.vim/port-file}}
                   :runtime/on-load ["let g:carto_flow_port_file = '{{port-file}}'"
-                                    "let g:carto_flow_auto_open = 1"
+                                    "let g:carto_flow_follow_edits = get(g:, 'carto_flow_follow_edits', 0)"
                                     "CartoFlowConnect"]}]}
