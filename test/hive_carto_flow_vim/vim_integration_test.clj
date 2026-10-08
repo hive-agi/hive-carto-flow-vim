@@ -9,7 +9,9 @@
             [hive-addon.protocol :as addon]
             [hive-carto-flow.render.text :as text]
             [hive-carto-flow-vim.test-support :as t]
-            [hive-carto-flow-vim.paths :as paths])
+            [hive-carto-flow-vim.paths :as paths]
+            [clojure.data.json :as json]
+            [clojure.java.shell :as sh])
   (:import (java.lang ProcessBuilder$Redirect)
            (java.util.concurrent TimeUnit)))
 
@@ -104,7 +106,7 @@
                           (.redirectErrorStream true)
                           (.redirectOutput (io/file dir "vim.out")))))
         (do (is (t/eventually #(= 1 (clients)) 20000) "vim connected")
-            (is (t/eventually #(= #{:carto-flow/timeline :carto-flow/seek}
+            (is (t/eventually #(= #{:carto-flow/timeline :carto-flow/seek :carto-flow/diff-walk}
                                   (:features (:details (addon/health vim))))
                               20000)
                 "the shipped script's features, confirmed function by function by a real Vim"))
@@ -204,6 +206,147 @@
                       (.redirectOutput (io/file dir (str name ".vim.out")))))]
       (is (.waitFor p vim-timeout-seconds TimeUnit/SECONDS) "vim exited in time")
       (lines-of out))))
+
+(deftest headless-vim-walks-frame-stops-and-renders-text-properties
+  (if-not (and (vim-with-channels?) (str/includes? (:out (sh/sh vim-path "--version")) "+textprop"))
+    (println "SKIP vim walk: needs +channel +textprop")
+    (let [dir (t/temp-dir)
+          first-file (io/file dir "first.clj")
+          second-file (io/file dir "second.clj")
+          stop (fn [frame path focus of added removed]
+                 {"stop/frame" frame "stop/path" (str path) "stop/focus" focus
+                  "stop/of" of "stop/added" added "stop/removed" removed
+                  "stop/forms" ["example/f"]})]
+      (try
+        (spit first-file "one\ntwo\nthree\nfour\nfive\n")
+        (spit second-file "alpha\nbeta\n")
+        (let [stops [(stop 0 first-file 2 [1 2] [{"start" 2 "count" 1}]
+                           [{"above" 2 "lines" ["old two"]}])
+                     (stop 0 first-file 4 [2 2] [{"start" 4 "count" 1}] [])
+                     (stop 1 second-file 2 [1 1] []
+                           [{"above" 3 "lines" ["old tail"]}])]
+              frame (fn [index xs] {"index" index "line" (str "frame " index)
+                                    "detail" [(str "frame " index)] "stops" xs})
+              results (run-plugin-script
+                       dir "walk"
+                       ["let g:carto_flow_follow_edits = 0"
+                        "runtime plugin/carto_flow.vim"
+                        "call carto_flow#hello({'frames': 2})"
+                        (str "call carto_flow#ingest(" (json/write-str (frame 0 (subvec (vec stops) 0 2))) ")")
+                        (str "call carto_flow#ingest(" (json/write-str (frame 1 [(nth stops 2)])) ")")
+                        "CartoFlow"
+                        "let s:timeline = win_getid()"
+                        "let s:out = []"
+                        "function! s:snapshot() abort"
+                        "  let l:code = filter(range(1, winnr('$')), '!empty(bufname(winbufnr(v:val))) && bufname(winbufnr(v:val)) !~# \"^carto-flow://\"')[0]"
+                        "  let l:buf = winbufnr(l:code)"
+                        "  call add(s:out, json_encode({'frame': carto_flow#status().cursor, 'focus': win_getid() == s:timeline, 'path': bufname(l:buf), 'line': line('.', win_getid(l:code)), 'props': prop_list(2, {'bufnr': l:buf}) + prop_list(3, {'bufnr': l:buf}) + prop_list(4, {'bufnr': l:buf})}))"
+                        "endfunction"
+                        "normal n"
+                        "call s:snapshot()"
+                        "runtime autoload/carto_flow.vim"
+                        "normal n"
+                        "call s:snapshot()"
+                        "normal n"
+                        "call s:snapshot()"
+                        "normal n"
+                        "call s:snapshot()"
+                        "call carto_flow#detail()"
+                        "normal p"
+                        "call s:snapshot()"
+                        (str "call win_gotoid(bufwinid(bufnr('" first-file "')))")
+                        "normal ]h"
+                        "call s:snapshot()"
+                        "CartoFlowWalkStop"
+                        (str "call add(s:out, json_encode({'mode': carto_flow#stop_status().mode, 'props': prop_list(2, {'bufnr': bufnr('" second-file "')})}))")])
+              snapshots (mapv #(json/read-str % :key-fn keyword) results)
+              props (fn [i] (:props (nth snapshots i)))]
+          (is (= [0 0 1 1] (mapv :frame (take 4 snapshots))) (pr-str results))
+          (is (every? :focus (take 4 snapshots)) "focus stays in timeline")
+          (is (= (mapv str [first-file first-file second-file second-file])
+                 (mapv :path (take 4 snapshots))))
+          (is (= [2 4 2 2] (mapv :line (take 4 snapshots))))
+          (is (some #(= "cartoFlowAddLine" (:type %)) (props 0)))
+          (is (some #(= "cartoFlowAddLine" (:type %)) (props 1)))
+          (is (some #(and (= "cartoFlowDelText" (:type %))
+                          (= "- old two" (:text %))
+                          (= "above" (:text_align %))) (props 0)))
+          (is (some #(and (= "cartoFlowDelText" (:type %))
+                          (= "- old tail" (:text %))
+                          (= "below" (:text_align %))) (props 2)))
+          (is (= [0 1] (mapv :frame (subvec snapshots 4 6))) "detail p and code ]h walk back and forward")
+          (is (every? :focus (subvec snapshots 4 6)) "both return to timeline")
+          (is (= {:mode 0 :props []} (last snapshots))))
+        (finally (t/delete-tree! dir))))))
+
+(deftest headless-vim-opens-paged-multifile-code-view
+  (if-not (and (vim-with-channels?) (str/includes? (:out (sh/sh vim-path "--version")) "+textprop"))
+    (println "SKIP code view: needs +channel +textprop")
+    (let [dir (t/temp-dir)
+          paths (mapv #(io/file dir (str "file" % ".clj")) (range 4))
+          stop (fn [frame file focus added removed]
+                 {"stop/frame" frame "stop/path" (str file) "stop/focus" focus
+                  "stop/of" [1 1] "stop/added" added "stop/removed" removed
+                  "stop/forms" ["example/f"]})
+          frame (fn [index stops] {"index" index "line" (str "frame " index)
+                                    "detail" [(str "frame " index)] "stops" stops})]
+      (try
+        (doseq [file paths] (spit file "one\ntwo\nthree\nfour\nfive\n"))
+        (let [first-stops [(stop 0 (paths 0) 2 [{"start" 2 "count" 1}]
+                                 [{"above" 4 "lines" ["removed"]}])
+                           (stop 0 (paths 0) 4 [{"start" 4 "count" 1}] [])
+                           (stop 0 (paths 1) 3 [{"start" 3 "count" 1}] [])]
+              four-stops (mapv (fn [file] (stop 1 file 2 [{"start" 2 "count" 1}] [])) paths)
+              result (run-plugin-script
+                      dir "code-view"
+                      ["let g:carto_flow_follow_edits = 0"
+                       "runtime plugin/carto_flow.vim"
+                       "call carto_flow#hello({'frames': 3})"
+                       (str "call carto_flow#ingest(" (json/write-str (frame 0 first-stops)) ")")
+                       (str "call carto_flow#ingest(" (json/write-str (frame 1 four-stops)) ")")
+                       (str "call carto_flow#ingest(" (json/write-str (frame 2 [(stop 2 (paths 2) 5 [{"start" 5 "count" 1}] [{"above" 5 "lines" ["old five"]}])])) ")")
+                       "CartoFlow"
+                       "let s:timeline = win_getid()"
+                       (str "let s:first = " (vim-string (str (paths 0))))
+                       "let s:out = []"
+                       "function! s:snapshot() abort"
+                       "  let l:wins = filter(range(1, winnr('$')), '!empty(bufname(winbufnr(v:val))) && bufname(winbufnr(v:val)) !~# \"^carto-flow://\"')"
+                       "  let l:rows = map(l:wins, '{\"path\": bufname(winbufnr(v:val)), \"line\": line(\".\", win_getid(v:val)), \"signs\": sign_getplaced(winbufnr(v:val), {\"group\": \"cartoflow\"})[0].signs}')"
+                       "  call add(s:out, json_encode({'focus': win_getid() == s:timeline, 'windows': l:rows, 'props': prop_list(2, {'bufnr': bufnr(s:first)}) + prop_list(4, {'bufnr': bufnr(s:first)}), 'combine': prop_type_get('cartoFlowAddLine').combine, 'messages': execute('messages')}))"
+                       "endfunction"
+                       "call cursor(4, 1)"
+                       "execute \"normal \\<CR>\""
+                       "call s:snapshot()"
+                       "call carto_flow#code_view(1)"
+                       "call s:snapshot()"
+                       "call feedkeys(\"\\<Tab>\", 'xt')"
+                       "call s:snapshot()"
+                       "call carto_flow#code_view(0)"
+                       "call s:snapshot()"
+                       "call carto_flow#code_view(1)"
+                       "call cursor(6, 1)"
+                       "execute \"normal \\<CR>\""
+                       "call s:snapshot()"
+                       "call carto_flow#code_view(0)"
+                       "call s:snapshot()"])
+              rows (mapv #(json/read-str % :key-fn keyword) result)]
+          (is (= 6 (count rows)) (pr-str result))
+          (is (every? :focus rows) "timeline keeps focus")
+          (is (= (mapv str (take 2 paths)) (mapv :path (:windows (rows 0)))))
+          (is (= [2 3] (mapv :line (:windows (rows 0)))))
+          (is (= 3 (count (:windows (rows 1)))) "three files at once")
+          (is (str/includes? (:messages (rows 1)) "+1 more files (Tab for next page)"))
+          (is (= [(str (paths 3))] (mapv :path (:windows (rows 2)))) "Tab pages to fourth")
+          (is (= 2 (count (:windows (rows 3)))) "next frame closes extra windows")
+          (is (some #(= "cartoFlowAddLine" (:type %)) (:props (rows 0))))
+          (is (= [(str (paths 2))] (mapv :path (:windows (rows 4)))) "a one-file frame closes extras")
+          (is (some #(= "cartoFlowChange" (:name %)) (-> rows (nth 4) :windows first :signs)) "replacement shows ~")
+          (is (= [5] (mapv :line (:windows (rows 4)))))
+          (is (some #(and (= "cartoFlowDelText" (:type %)) (= "- removed" (:text %))) (:props (rows 0))))
+          (is (= 1 (:combine (rows 0))))
+          (is (some #(= "cartoFlowPlus" (:name %)) (-> rows first :windows first :signs)))
+          (is (some #(= "cartoFlowMinus" (:name %)) (-> rows first :windows first :signs))))
+        (finally (t/delete-tree! dir))))))
 
 (deftest the-default-keys-map-the-named-actions-and-never-take-a-key-that-is-taken
   (if-not (vim-with-channels?)
@@ -402,7 +545,7 @@
             "health reports the reload")
         (is (= 1 (:connections (:details (addon/health vim))))
             "the reloaded script took the old one's channel over: no second connection")
-        (is (= #{:carto-flow/timeline :carto-flow/seek}
+        (is (= #{:carto-flow/timeline :carto-flow/seek :carto-flow/diff-walk}
                (:features (:details (addon/health vim))))
             (str "the sync ran before the probe: the stale script defined no carto_flow#seek,"
                  " the reloaded one does, so the handshake granted :carto-flow/seek"))

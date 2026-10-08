@@ -14,7 +14,8 @@
   (:require [clojure.string :as str]
             [hive-carto-flow.render.text :as text]
             [hive-carto-flow.vessel :as flow-vessel]
-            [hive-vessel.core :as v]))
+            [hive-vessel.core :as v]
+            [hive-carto-flow.domain.walk :as walk]))
 
 (def dialect :vim-channel)
 
@@ -28,14 +29,16 @@
 
 (def server-name "hive.carto-flow.vim")
 
+(declare stop-message)
+
 (defn frame-message
-  "The Vim-side value for FRAME: index, phase, rendered timeline line, detail
-   lines, and the frame itself (hive-vessel makes it JSON-safe)."
+  "The Vim-side frame projection, including this frame's JSON-safe Stops."
   [frame]
   {"index" (:frame/index frame)
    "phase" (some-> (text/phase-of frame) name)
    "line" (text/frame-line frame)
    "detail" (vec (text/detail-lines frame))
+   "stops" (mapv stop-message (walk/stops [frame]))
    "frame" frame})
 
 (defn ingest-op
@@ -43,6 +46,14 @@
    under :frame, or under :payload when the op came from an envelope."
   [{:keys [frame payload]} _target]
   {:op :vim/call :fn ingest-fn :args [(frame-message (or frame payload))]})
+
+(def diff-walk-feature
+  "Feature granted to a Vim whose loaded script defines diff-walk functions."
+  :carto-flow/diff-walk)
+
+(def show-stop-fn
+  "carto_flow#show_stop"
+  "carto_flow#show_stop")
 
 (def timeline-translator
   {:translator/id :hive.carto-flow.vim/frame->timeline
@@ -52,8 +63,22 @@
    :translator/accepts flow-vessel/frame-accepts
    :translator/translate ingest-op})
 
+(defn stop-message
+  "Project a core Stop onto the JSON wire without keyword-key ambiguity."
+  [stop]
+  {"stop/index" (:stop/index stop)
+   "stop/frame" (:stop/frame stop)
+   "stop/hunk" (:stop/hunk stop)
+   "stop/of" (:stop/of stop)
+   "stop/path" (:stop/path stop)
+   "stop/focus" (:stop/focus stop)
+   "stop/added" (mapv #(into {} (map (fn [[k v]] [(name k) v])) %) (:stop/added stop))
+   "stop/removed" (mapv #(into {} (map (fn [[k v]] [(name k) v])) %) (:stop/removed stop))
+   "stop/header" (:stop/header stop)
+   "stop/forms" (:stop/forms stop)})
+
 (def translators
-  "What this addon exposes under hive-vessel's `:vessel/translators` hook."
+  "Only the existing frame flow carries stops."
   [timeline-translator])
 
 (defn registry
@@ -80,12 +105,10 @@
   :carto-flow/seek)
 
 (def feature-fns
-  "Each feature the server may grant: the Vim functions it entitles the server
-   to call, and the advertised feature that makes it probe-able (`:within`). A
-   feature is granted only when every one of its functions is defined in the
-   connected Vim."
+  "Server-granted functions, checked against the connected Vim."
   {timeline-feature {:fns [ingest-fn hello-fn]}
-   seek-feature {:fns [seek-fn] :within timeline-feature}})
+   seek-feature {:fns [seek-fn] :within timeline-feature}
+   diff-walk-feature {:fns [show-stop-fn] :within timeline-feature}})
 
 (def probed-fns
   "Every function named in `feature-fns`, in a stable order."
