@@ -24,5 +24,5 @@
 
   :dev {:extra-paths ["test"]}
 
-  :build {:deps {io.github.hive-agi/hive-build {:mvn/version "0.3.1"}}
+  :build {:deps {io.github.hive-agi/hive-build {:mvn/version "0.3.3"}}
           :ns-default hive-build.api}}}
