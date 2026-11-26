@@ -19,18 +19,18 @@ jobs:
       MAVEN_USERNAME: ${{ secrets.MAVEN_USERNAME }}
       MAVEN_TOKEN: ${{ secrets.MAVEN_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
 
-      - uses: DeLaGuardo/setup-clojure@13.0
+      - uses: DeLaGuardo/setup-clojure@13.7.0
         with:
-          cli: latest
+          cli: 1.12.7.1681
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.m2/repository
           key: m2-${{ runner.os }}-${{ hashFiles('deps.edn') }}
